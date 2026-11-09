@@ -38,27 +38,50 @@ mongosh "$MONGO_URI"      # MongoDB
 redis-cli -h redis        # Redis
 ```
 
-### Vaciar los datos
+## Cargar los datos
 
-Los datos persisten en volúmenes de Docker entre reinicios. Para empezar de cero:
+```bash
+python -m farmared.carga
+```
+
+Carga los CSV de `datos/provistos/` y `datos/adicionales/` en MongoDB y en Redis. Se puede correr cuantas veces se quiera: cada vez deja exactamente el estado de los CSV y descarta lo que hayan cambiado los servicios de escritura. Si los datos tienen un error, por ejemplo una referencia a un id inexistente, lo informa y no modifica ninguna base. Detalle en [`docs/informe/carga.md`](docs/informe/carga.md).
+
+Los datos persisten en volúmenes de Docker entre reinicios. Para vaciar las bases por completo:
 
 ```bash
 mongosh "$MONGO_URI" --quiet --eval 'db.getSiblingDB("farmared").dropDatabase()'
 redis-cli -h redis FLUSHDB
 ```
 
+## Ejecutar las consultas
+
+Cada consulta es un módulo de `farmared/consultas/` y se ejecuta desde la terminal del contenedor `app`, después de la carga:
+
+```bash
+python -m farmared.consultas.qNN [argumentos]
+```
+
+`python -m farmared.consultas.qNN --help` muestra los argumentos de las consultas que los tienen.
+
+| # | Consulta | Ejemplo |
+|---|---|---|
+| 13 | ABM de clientes | `python -m farmared.consultas.q13 alta --nombre Ana --apellido Paz --dni 40111222 --email ana.paz@example.com --telefono 1140001111 --ciudad "Buenos Aires" --provincia "Buenos Aires" --obra-social OSDE --nro-afiliado OS-500100` |
+| | | `python -m farmared.consultas.q13 modificar C021 --telefono 1140002222 --obra-social "Sin cobertura" --nro-afiliado ""` |
+| | | `python -m farmared.consultas.q13 baja C021` |
+
 ## Estado
 
 | Parte | Estado |
 |---|---|
-| Datasets provistos | Cargados en [`datos/provistos/`](datos/provistos/) |
+| Datasets provistos | En [`datos/provistos/`](datos/provistos/) |
 | Elección de motores y justificación | Propuesta en [`docs/arquitectura.md`](docs/arquitectura.md) |
 | División del trabajo | Propuesta en [`docs/division.md`](docs/division.md) |
+| Modelo de datos | Borrador en [`docs/modelo.md`](docs/modelo.md) |
 | Entorno en Codespaces | Listo |
-| Registros adicionales (≥ 10 por colección/tabla) | Pendiente |
-| Scripts de carga | Pendiente |
-| Consultas `q01`–`q15` | Pendiente |
-| Informe PDF | Pendiente |
+| Script de carga | Listo |
+| Registros adicionales (≥ 10 por colección/tabla) | Clientes, sucursales, farmacéuticos y proveedores listos; faltan productos, lotes, recetas, ventas y detalle |
+| Consultas | q13 lista; faltan q01–q12, q14 y q15 |
+| Informe PDF | Secciones de entorno, carga y q13 en [`docs/informe/`](docs/informe/) |
 
 ## Estructura
 
@@ -69,10 +92,16 @@ requirements.txt    dependencias de Python
 farmared/
   conexiones.py     get_mongo(), get_mongo_client() y get_redis()
   verificar.py      chequeo del entorno
+  carga.py          carga idempotente de los CSV
+  stock.py          claves del stock en Redis
+  errores.py        ErrorDeValidacion, para los servicios de escritura
+  salida.py         impresión de resultados como JSON
   consultas/        q01–q15, un módulo por consulta
 datos/
   provistos/        CSV entregados por la cátedra, sin modificar
-docs/               arquitectura y división del trabajo
+  adicionales/      registros propios del equipo, mismo formato
+docs/               arquitectura, división del trabajo y modelo de datos
+  informe/          secciones del informe PDF
 ```
 
 ## Datos
