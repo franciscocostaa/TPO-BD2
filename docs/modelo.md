@@ -162,10 +162,17 @@ ZRANGEBYSCORE lotes:unidades -inf (50
   - `ventas.id_sucursal` se completa con la sucursal del farmacéutico.
   - `stock_lotes` va a Redis.
 - **Idempotencia:**
-  - MongoDB: `replace_one(..., upsert=True)` por `_id`.
-  - Redis: se reescriben el hash y los `ZADD` de cada lote.
-  - Volver a cargar deja exactamente el estado inicial de los CSV y descarta los cambios hechos por las consultas de escritura.
-- **Integridad referencial:** la carga verifica que cada referencia exista (cliente, farmacéutico, producto, receta, sucursal, proveedor) y aborta con un mensaje si falta alguna. No valida las reglas de alta de q14: los datos históricos incluyen, por ejemplo, ventas de un farmacéutico hoy inactivo (V001) o de un producto hoy discontinuado (V014).
+  - MongoDB: se crean los índices y, en una única transacción, cada colección se vacía (`delete_many`) y se vuelve a llenar (`insert_many`). Las vistas no se tocan.
+  - Redis: en un único `MULTI`, se borran `lote:*`, `stock:*` y `lotes:unidades` y se escriben los lotes de nuevo.
+  - Volver a cargar deja exactamente el estado inicial de los CSV y descarta los cambios hechos por las consultas de escritura, incluidos los documentos que agregaron.
+- **Integridad referencial:** antes de escribir, la carga valida los datos combinados y, si encuentra errores, los informa todos y no modifica ninguna base:
+  - Solo pueden estar vacíos `nro_afiliado`, `proxima_dispensa` e `id_receta`.
+  - Los ids, los DNI y las matrículas son únicos.
+  - Cada referencia de la consigna (§2.10) apunta a un id existente.
+  - Cada venta tiene ítems y su total es la suma de ellos. Su receta, si tiene, es del mismo cliente.
+  - Ningún lote tiene unidades negativas.
+
+  No valida las reglas de alta de q14: los datos históricos incluyen, por ejemplo, ventas de un farmacéutico hoy inactivo (V001) o de un producto hoy discontinuado (V014).
 
 ## Para decidir en la reunión
 

@@ -1,8 +1,11 @@
 # Datos
 
-`provistos/` contiene los CSV de la cátedra tal como fueron entregados. No se editan: los registros propios del equipo van en archivos aparte, y la carga combina ambos orígenes.
+- `provistos/`: los CSV de la cátedra tal como fueron entregados. No se editan.
+- `adicionales/`: los registros propios del equipo (≥ 10 por archivo), con el mismo nombre de archivo, el mismo encabezado y la misma serie de ids (`C009`, `S006`…). Un archivo que todavía no existe se considera vacío.
 
-| Archivo | Registros | Contenido |
+`python -m farmared.carga` combina ambos orígenes y rechaza ids repetidos entre ellos.
+
+| Archivo | Provistos | Contenido |
 |---|---|---|
 | `clientes.csv` | 8 | Clientes y cobertura de salud |
 | `sucursales.csv` | 5 | Farmacias y la droguería central |

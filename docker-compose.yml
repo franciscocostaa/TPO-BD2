@@ -7,6 +7,7 @@ services:
       dockerfile: .devcontainer/Dockerfile
     volumes:
       - .:/workspaces/TPO-BD2:cached
+    working_dir: /workspaces/TPO-BD2
     command: sleep infinity
     environment:
       MONGO_URI: mongodb://mongo:27017/?replicaSet=rs0
