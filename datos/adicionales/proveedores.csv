@@ -1,0 +1,11 @@
+id_proveedor,razon_social,cuit,tipo,ciudad,provincia,telefono,activo
+PRV006,Laboratorios Ombú S.A.,30-71402318-3,Laboratorio,Pilar,Buenos Aires,2304506600,True
+PRV007,Droguería Calchaquí S.R.L.,30-70561247-8,Droguería,San Miguel de Tucumán,Tucumán,3814607700,True
+PRV008,Laboratorio Espinillo S.A.,30-71736095-4,Laboratorio,Santa Fe,Santa Fe,3424708800,True
+PRV009,Ceibo Farma S.A.,30-70218455-6,Laboratorio,Buenos Aires,Buenos Aires,1143809900,True
+PRV010,Droguería Médanos S.A.,30-71950336-1,Droguería,Mar del Plata,Buenos Aires,2234901100,True
+PRV011,Tala Salud S.R.L.,30-70874129-5,Droguería,Rosario,Santa Fe,3414012200,True
+PRV012,Laboratorio Quebracho S.A.,30-71267403-9,Laboratorio,Villa María,Córdoba,3534113300,True
+PRV013,Droguería Jacarandá S.R.L.,30-70645981-9,Droguería,Morón,Buenos Aires,1144214400,False
+PRV014,Laboratorios Ñandubay S.A.,30-71583720-6,Laboratorio,Paraná,Entre Ríos,3434315500,True
+PRV015,Algarrobo Biofarma S.A.,30-70392168-6,Laboratorio,Córdoba,Córdoba,3514416600,False

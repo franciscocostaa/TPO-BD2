@@ -1,0 +1,13 @@
+id_cliente,nombre,apellido,dni,email,telefono,ciudad,provincia,obra_social,nro_afiliado,activo
+C009,Valentina,Ríos,42345678,valentina.rios@example.com,1145223344,Buenos Aires,Buenos Aires,Swiss Medical,SM-312450,True
+C010,Diego,Ferreyra,30567890,diego.ferreyra@example.com,2214556677,La Plata,Buenos Aires,IOMA,IO-518230,True
+C011,Elena,Sosa,7654321,elena.sosa@example.com,2234667788,Mar del Plata,Buenos Aires,PAMI,PA-120334,True
+C012,Tomás,Aguirre,44567123,tomas.aguirre@example.com,3415778899,Rosario,Santa Fe,Sin cobertura,,True
+C013,Agustina,Molina,38901234,agustina.molina@example.com,3424889900,Santa Fe,Santa Fe,OSDE,OS-402871,True
+C014,Gabriel,Herrera,27345612,gabriel.herrera@example.com,3515990011,Córdoba,Córdoba,Galeno,GA-771045,True
+C015,Micaela,Romero,41234987,micaela.romero@example.com,3541101122,Villa Carlos Paz,Córdoba,Sin cobertura,,True
+C016,Jorge,Castro,12345098,jorge.castro@example.com,1149212233,Quilmes,Buenos Aires,PAMI,PA-334590,False
+C017,Paula,Domínguez,35678234,paula.dominguez@example.com,1150323344,Buenos Aires,Buenos Aires,OSDE,OS-287611,True
+C018,Nicolás,Vega,39876012,nicolas.vega@example.com,3462434455,Venado Tuerto,Santa Fe,Swiss Medical,SM-405732,True
+C019,Lorena,Medina,32109876,lorena.medina@example.com,3516545566,Córdoba,Córdoba,OSDE,OS-355190,True
+C020,Ramiro,Ortiz,29876345,ramiro.ortiz@example.com,1151656677,Buenos Aires,Buenos Aires,Galeno,GA-640218,False

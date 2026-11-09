@@ -1,0 +1,12 @@
+id_farmaceutico,nombre,apellido,matricula,cargo,id_sucursal,activo
+F008,Lucas,Moreno,MN-18455,Director Técnico,S006,True
+F009,Florencia,Ibarra,MN-18502,Director Técnico,S007,True
+F010,Martina,Correa,MN-18533,Director Técnico,S008,True
+F011,Esteban,Villalba,MN-18590,Director Técnico,S009,True
+F012,Daniela,Ojeda,MN-18617,Director Técnico,S010,True
+F013,Ignacio,Luna,MN-18664,Director Técnico,S011,True
+F014,Camila,Rojas,MN-18709,Director Técnico,S012,True
+F015,Pablo,Figueroa,MN-18751,Director Técnico,S013,True
+F016,Silvina,Godoy,MN-17820,Director Técnico,S014,False
+F017,Bruno,Peralta,MN-18788,Farmacéutico,S003,True
+F018,Andrea,Toledo,MN-18823,Director Técnico,S015,True
