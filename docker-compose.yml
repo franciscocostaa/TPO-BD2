@@ -1,0 +1,59 @@
+name: farmared
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - .:/workspaces/TPO-BD2:cached
+    command: sleep infinity
+    environment:
+      MONGO_URI: mongodb://mongo:27017/?replicaSet=rs0
+      MONGO_DB: farmared
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  mongo:
+    image: mongo:8.0
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    volumes:
+      - mongo-data:/data/db
+      - mongo-config:/data/configdb
+    # Las transacciones de varios documentos requieren un replica set.
+    # El healthcheck lo inicia la primera vez y queda sano cuando el nodo es primario.
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - >-
+          try { rs.status() } catch (e) {
+            rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongo:27017' }] })
+          }
+          if (!db.hello().isWritablePrimary) quit(1)
+      interval: 5s
+      timeout: 10s
+      start_period: 20s
+      retries: 12
+
+  redis:
+    image: redis:7.4
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  mongo-data:
+  mongo-config:
+  redis-data:
