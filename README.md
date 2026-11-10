@@ -68,6 +68,7 @@ python -m farmared.consultas.qNN [argumentos]
 | 1 | Productos activos con su proveedor | `python -m farmared.consultas.q01` |
 | 2 | Ventas pendientes con su farmacéutico | `python -m farmared.consultas.q02` |
 | 3 | Historial de un cliente: ventas y recetas por fecha | `python -m farmared.consultas.q03 C001` |
+| 6 | Recetas prolongadas vigentes con la próxima dispensa vencida | `python -m farmared.consultas.q06` (opcional: `--hoy 2026-10-13`) |
 | 9 | Ventas libres de menos de $5.000, sin anuladas | `python -m farmared.consultas.q09` |
 | 13 | ABM de clientes | `python -m farmared.consultas.q13 alta --nombre Ana --apellido Paz --dni 40111222 --email ana.paz@example.com --telefono 1140001111 --ciudad "Buenos Aires" --provincia "Buenos Aires" --obra-social OSDE --nro-afiliado OS-500100` |
 | | | `python -m farmared.consultas.q13 modificar C021 --telefono 1140002222 --obra-social "Sin cobertura" --nro-afiliado ""` |
