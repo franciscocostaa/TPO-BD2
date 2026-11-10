@@ -9,7 +9,8 @@ Secciones del informe PDF (consigna §5.2), una por archivo. Al final se arman e
 | Modelo de datos con diagramas | `../modelo.md` (base) | Todos | Borrador, sin diagramas |
 | Entorno | [`entorno.md`](entorno.md) | Integrante 1 | Listo |
 | Estrategia de carga y registros adicionales | [`carga.md`](carga.md) | Integrante 1 (cada uno agrega sus registros) | Listo lo del integrante 1 |
-| Consultas 1–12 | | Integrantes 2 y 3 | Pendiente |
+| Consulta 1 | [`q01.md`](q01.md) | Integrante 2 | Listo |
+| Consultas 2–12 | | Integrantes 2 y 3 | Pendiente |
 | Consulta 13 | [`q13.md`](q13.md) | Integrante 1 | Listo |
 | Consultas 14 y 15, consistencia e integridad | | Integrante 4 | Pendiente |
 | Limitaciones, alternativas y conclusiones | | Todos | Pendiente |

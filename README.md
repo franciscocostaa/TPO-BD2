@@ -65,6 +65,7 @@ python -m farmared.consultas.qNN [argumentos]
 
 | # | Consulta | Ejemplo |
 |---|---|---|
+| 1 | Productos activos con su proveedor | `python -m farmared.consultas.q01` |
 | 13 | ABM de clientes | `python -m farmared.consultas.q13 alta --nombre Ana --apellido Paz --dni 40111222 --email ana.paz@example.com --telefono 1140001111 --ciudad "Buenos Aires" --provincia "Buenos Aires" --obra-social OSDE --nro-afiliado OS-500100` |
 | | | `python -m farmared.consultas.q13 modificar C021 --telefono 1140002222 --obra-social "Sin cobertura" --nro-afiliado ""` |
 | | | `python -m farmared.consultas.q13 baja C021` |
@@ -80,8 +81,8 @@ python -m farmared.consultas.qNN [argumentos]
 | Entorno en Codespaces | Listo |
 | Script de carga | Listo |
 | Registros adicionales (≥ 10 por colección/tabla) | Clientes, sucursales, farmacéuticos y proveedores listos; faltan productos, lotes, recetas, ventas y detalle |
-| Consultas | q13 lista; faltan q01–q12, q14 y q15 |
-| Informe PDF | Secciones de entorno, carga y q13 en [`docs/informe/`](docs/informe/) |
+| Consultas | q01 y q13 listas; faltan q02–q12, q14 y q15 |
+| Informe PDF | Secciones de entorno, carga, q01 y q13 en [`docs/informe/`](docs/informe/) |
 
 ## Estructura
 
