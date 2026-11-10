@@ -66,6 +66,7 @@ python -m farmared.consultas.qNN [argumentos]
 | # | Consulta | Ejemplo |
 |---|---|---|
 | 1 | Productos activos con su proveedor | `python -m farmared.consultas.q01` |
+| 9 | Ventas libres de menos de $5.000, sin anuladas | `python -m farmared.consultas.q09` |
 | 13 | ABM de clientes | `python -m farmared.consultas.q13 alta --nombre Ana --apellido Paz --dni 40111222 --email ana.paz@example.com --telefono 1140001111 --ciudad "Buenos Aires" --provincia "Buenos Aires" --obra-social OSDE --nro-afiliado OS-500100` |
 | | | `python -m farmared.consultas.q13 modificar C021 --telefono 1140002222 --obra-social "Sin cobertura" --nro-afiliado ""` |
 | | | `python -m farmared.consultas.q13 baja C021` |
