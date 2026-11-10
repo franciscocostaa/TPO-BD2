@@ -85,7 +85,7 @@ python -m farmared.consultas.qNN [argumentos]
 | Modelo de datos | Borrador en [`docs/modelo.md`](docs/modelo.md) |
 | Entorno en Codespaces | Listo |
 | Script de carga | Listo |
-| Registros adicionales (≥ 10 por colección/tabla) | Clientes, sucursales, farmacéuticos y proveedores listos; faltan productos, lotes, recetas, ventas y detalle |
+| Registros adicionales (≥ 10 por colección/tabla) | Clientes, sucursales, farmacéuticos, proveedores, productos y lotes listos; faltan recetas, ventas y detalle |
 | Consultas | q01, q02, q03, q06, q08, q09 y q13 listas; faltan q04, q05, q07, q10, q11, q12, q14 y q15 |
 | Informe PDF | Secciones de entorno, carga, q01, q02, q03, q06, q08, q09 y q13 en [`docs/informe/`](docs/informe/) |
 
