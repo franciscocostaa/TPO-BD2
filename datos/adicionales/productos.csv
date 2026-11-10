@@ -1,0 +1,13 @@
+id_producto,nombre,principio_activo,categoria,presentacion,condicion_venta,precio_unit,id_proveedor,activo
+PRD014,Diclofenac 75mg x15,Diclofenac,Antiinflamatorio,Comprimidos x15,Bajo receta,4300,PRV006,True
+PRD015,Cetirizina 10mg x10,Cetirizina,Antihistamínico,Comprimidos x10,Venta libre,2600,PRV009,True
+PRD016,Enalapril 10mg x30,Enalapril,Antihipertensivo,Comprimidos x30,Bajo receta,3900,PRV008,True
+PRD017,Clonazepam 2mg x30,Clonazepam,Ansiolítico,Comprimidos x30,Bajo receta archivada,6800,PRV012,True
+PRD018,Azitromicina 500mg x3,Azitromicina,Antibiótico,Comprimidos x3,Bajo receta,8700,PRV014,True
+PRD019,Protector solar FPS50 200ml,Octocrileno,Dermatológico,Loción 200 ml,Venta libre,12500,PRV010,True
+PRD020,Sertralina 50mg x30,Sertralina,Antidepresivo,Comprimidos x30,Bajo receta,9400,PRV006,True
+PRD021,Insulina glargina 100 UI/ml,Insulina glargina,Antidiabético,Lapicera prellenada 3 ml,Bajo receta,32000,PRV011,True
+PRD022,Vitamina C 1g x30,Ácido ascórbico,Suplemento,Comprimidos efervescentes x30,Venta libre,3100,PRV007,True
+PRD023,Clotrimazol crema 1% 20g,Clotrimazol,Antimicótico,Crema 20 g,Venta libre,2900,PRV013,True
+PRD024,Diazepam 10mg x20,Diazepam,Ansiolítico,Comprimidos x20,Bajo receta archivada,4100,PRV015,False
+PRD025,Pantoprazol 40mg x28,Pantoprazol,Gastroprotector,Comprimidos x28,Bajo receta,6100,PRV008,False

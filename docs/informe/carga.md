@@ -30,11 +30,11 @@ Salida con los datos actuales:
 ✔ sucursales: 5 provistos + 10 adicionales → MongoDB sucursales
 ✔ farmaceuticos: 7 provistos + 11 adicionales → MongoDB farmaceuticos
 ✔ proveedores: 5 provistos + 10 adicionales → MongoDB proveedores
-✔ productos: 13 provistos + 0 adicionales → MongoDB productos
+✔ productos: 13 provistos + 12 adicionales → MongoDB productos
 ✔ recetas: 9 provistos + 0 adicionales → MongoDB recetas
 ✔ ventas: 16 provistos + 0 adicionales → MongoDB ventas
 ✔ detalle_ventas: 22 provistos + 0 adicionales → MongoDB ventas.items
-✔ stock_lotes: 18 provistos + 0 adicionales → Redis
+✔ stock_lotes: 18 provistos + 16 adicionales → Redis
 ```
 
 ## Reproducible e idempotente
@@ -122,6 +122,31 @@ No agregamos droguerías: la consigna describe una única droguería propia (S00
 | Laboratorios y droguerías de distintas provincias, con CUIT de dígito verificador válido | Todos | q01, q08 |
 | Dados de baja | PRV013, PRV015 | q01 y q08 con un proveedor inactivo, cuando un producto adicional lo referencia |
 
-### Productos, lotes, recetas y ventas
+### Productos (PRD014–PRD025, 12 registros)
 
-*Pendiente: los agregan los integrantes 2, 3 y 4 (ver `docs/division.md`).*
+| Caso | Registros | Ejercita |
+|---|---|---|
+| Las tres condiciones de venta: libre, bajo receta y bajo receta archivada | Todos | q01, q14 (exigir receta o no) |
+| Activo con proveedor dado de baja | PRD023 (PRV013) | q01 (aparece, con `proveedor.activo: false`), q08 |
+| Discontinuados | PRD024 (de PRV015, también dado de baja), PRD025 | q01 (no aparecen), q14 (rechazo por producto inactivo) |
+| Productos de los proveedores adicionales | PRD014–PRD023 | q01, q08 (proveedor de cada lote) |
+
+### Lotes (L019–L034, 16 registros)
+
+Las fechas "por vencer" y "vencido" se eligieron respecto de noviembre de 2026.
+
+| Caso | Registros | Ejercita |
+|---|---|---|
+| **FEFO con un lote vencido en el medio:** PRD001 en S001 tiene L019 (vencido, 2026-08-31), L020 (2026-12-20) y L001 (2027-08-31) | L019, L020 | q15: tiene que saltear L019 y descontar primero de L020 |
+| **FEFO con tres lotes vigentes:** PRD003 en S001 tiene L033 (2026-11-20), L005 (2026-11-30) y L015 (2027-06-30) | L033 | q15: una venta grande consume L033, después L005 y después L015 |
+| **Solo stock vencido:** PRD017 en S001 tiene únicamente L022, vencido | L022 | q15: rechazo por falta de stock vigente, aunque haya unidades |
+| Lote agotado, que no se borra | L021 (0 unidades) | q08 (aparece con 0), q15 (se saltea) |
+| Stock bajo y por vencer | L026 (10 u., 2026-11-25), L028 (8 u., 2026-12-05) | q08 |
+| Bordes del umbral de q08 | L030 (49 u., entra), L031 (50 u., no entra) | q08 (`< 50` estricto) |
+| Vencido de un producto discontinuado | L034 | q08 (`vencido: true`) |
+| Stock central en la droguería | L032 (1800 u.) | q15 (la droguería no vende: sus lotes no se tocan) |
+| Lotes en farmacias adicionales | L027 (S006), L028 (S008), L029 (S007), L030 (S012), L031 (S010) | q08 |
+
+### Recetas y ventas
+
+*Pendiente: las agregan los integrantes 3 y 4 (ver `docs/division.md`).*
