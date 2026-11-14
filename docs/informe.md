@@ -281,7 +281,7 @@ Cada flecha es una referencia por id, salvo `ITEMS`, que va embebido en la venta
 
 #### Vista
 
-- `ingresos_farmaceutico_mes` (q11): pipeline sobre `ventas` que filtra las "Completada" del mes actual y suma `total` por farmacéutico. *Pendiente: la define el integrante 3.*
+- `ingresos_farmaceutico_mes` (q11): pipeline sobre `ventas` que filtra las "Completada" del mes actual y suma `total` por farmacéutico. No almacena datos: se recalcula en cada lectura, y el mes sale de `$$NOW`, la fecha del servidor al momento de la consulta. La define `farmared/consultas/q11.py`, que la crea si falta (ver [consulta 11](#consulta-11--ingresos-por-farmacéutico-en-el-mes-actual)).
 
 ### 2.3 Redis
 
@@ -424,7 +424,8 @@ La consigna pide al menos 10 registros propios por colección, elegidos para eje
 
 | Caso | Registros | Ejercita |
 |---|---|---|
-| Sin ninguna venta | Todos, salvo los que usen las ventas adicionales | q12 (clientes sin ventas en el último año), q10 |
+| Sin ninguna venta | C011, C012, C014, C016, C018, C019 | q12 (clientes sin ventas en el último año), q10 |
+| Con una única venta, de hace más de un año | C020 | q12 (aparece con `ultima_venta`, no con `null`) |
 | Dados de baja | C016, C020 | q13 (baja ya hecha), q14 (rechazo por cliente inactivo) |
 | Sin cobertura, sin número de afiliado | C012, C015 | q13 (regla de cobertura) |
 | DNI de 7 dígitos | C011 | q13 (el DNI se guarda como texto) |
@@ -479,9 +480,9 @@ Las fechas "por vencer" y "vencido" se eligieron respecto de noviembre de 2026.
 | Stock central en la droguería | L032 (1800 u.) | q15 (la droguería no vende: sus lotes no se tocan) |
 | Lotes en farmacias adicionales | L027 (S006), L028 (S008), L029 (S007), L030 (S012), L031 (S010) | q08 |
 
-#### Recetas (RC010–RC019, 10 registros)
+#### Recetas (RC010–RC024, 15 registros)
 
-Todas sin dispensas realizadas: así no hace falta inventar ventas históricas que las respalden, y `dispensas_realizadas` sigue coincidiendo con las ventas "Completada" de cada receta.
+RC010–RC019 van **sin dispensas realizadas**: así no hace falta inventar ventas históricas que las respalden, y `dispensas_realizadas` sigue coincidiendo con las ventas "Completada" de cada receta. RC020–RC024 sí tienen dispensas, y las ventas adicionales que las respaldan están más abajo.
 
 | Caso | Registros | Ejercita |
 |---|---|---|
@@ -491,10 +492,29 @@ Todas sin dispensas realizadas: así no hace falta inventar ventas históricas q
 | Vencidas | RC013 (C013, simple), RC017 (C019, archivada) | q14 (rechazo por receta no vigente), q03 |
 | Simple vigente para un producto archivado | RC016 (C018) | q14 (rechazo: el producto exige receta archivada) |
 | Vigente de un cliente dado de baja | RC019 (C016) | q14 (rechazo por cliente inactivo) |
+| Simple ya completada, con su venta | RC020 (C009, 1 de 1, por V017) | q04 (segunda receta de C009), q03 |
+| Prolongada con una dispensa hecha y la próxima en el futuro | RC021 (C013, 1 de 6, próxima 2026-12-07), RC023 (C003, 1 de 3, próxima 2026-12-11) | q04, q06 (**no** aparecen: la próxima dispensa todavía no venció) |
+| Simple vigente con la venta todavía pendiente | RC022 (C010, 0 de 1, por V022) | q04, q02 (venta pendiente con receta) |
+| Vencida y nunca dispensada | RC024 (C003, simple) | q04 (lleva a C003 a tres recetas) |
 
-#### Ventas
+#### Ventas (V017–V029, 13 registros) y sus ítems (D023–D039, 17 registros)
 
-*Pendiente: las agrega el integrante 3 (ver `docs/division.md`).*
+Los ítems usan el precio de lista de cada producto, y `total` es la suma de `cantidad × precio_unit`, que la carga verifica. Las fechas se eligieron respecto de **noviembre de 2026**.
+
+| Caso | Registros | Ejercita |
+|---|---|---|
+| **Ventas del mes actual** | V017, V018, V019, V020, V021, V024, V025, V027, V029 (noviembre de 2026) | q11: sin ventas del mes la vista devuelve cero filas y no se puede mostrar ningún ejemplo |
+| Venta del mes anterior, dentro de la ventana de 60 días | V026 (28/10/2026) | q05 (cuenta) y q11 (no cuenta): es lo que distingue las dos consultas |
+| Venta de hoy | V029 (14/11/2026) | q05 (borde superior de la ventana, inclusive) |
+| **Venta de hace más de un año** | V028 (20/05/2025, de C020, dado de baja) | q12 (aparece con `ultima_venta` vieja, no `null`) |
+| Venta "Pendiente" | V022 | q02, q05 (se cuenta: solo se excluyen las anuladas) |
+| Venta "Anulada", única del año de su cliente | V023 (C015) | q05 (no se cuenta), q11 (no suma), q12 (es el caso que distingue las dos lecturas de "venta registrada") |
+| Clientes nuevos con varias ventas | C009 (V017, V021), C010 (V018, V022), C017 (V020, V029) | q10, q03 |
+| Segundo farmacéutico de una sucursal ya existente | V023 y V024, de F017 (S003) | q10 (S003 devuelve los clientes de F005 y de F017 juntos) |
+| Ventas en las farmacias adicionales | V017 y V021 (S006), V018 y V022 (S008), V019 y V027 (S011) | q05, q10, q11 |
+| Volumen para el ranking, con empates a propósito | V020, V025, V026 (PRD001 y PRD011 quedan 10 a 10); V021, V027 (PRD015); V018, V025 (PRD022, empata con PRD004 en el quinto puesto) | q07 (desempate por id, arriba y en el corte) |
+
+Los **clientes sin compras** que necesita q12 no hacen falta agregarlos: de los doce clientes adicionales, siete quedan sin ninguna venta (C011, C012, C014, C016, C018, C019 y, con una venta vieja, C020).
 
 ## 5. Consultas y servicios
 
@@ -509,15 +529,15 @@ python -m farmared.consultas.qNN [argumentos]
 | 1 | Lectura | MongoDB | `$lookup` producto → proveedor |
 | 2 | Lectura | MongoDB | `$lookup` venta → farmacéutico → sucursal |
 | 3 | Lectura | MongoDB | `$unionWith` ventas + recetas del cliente |
-| 4 | Agregación | MongoDB | *Pendiente* |
-| 5 | Agregación | MongoDB | *Pendiente* |
+| 4 | Agregación | MongoDB | `$group` de recetas por cliente + `$lookup` cliente |
+| 5 | Agregación | MongoDB | `$lookup` farmacéutico → ventas, con `pipeline` propio |
 | 6 | Lectura | MongoDB | `$lookup` receta → cliente |
-| 7 | Agregación | MongoDB | *Pendiente* |
+| 7 | Agregación | MongoDB | `$unwind` de los ítems embebidos + `$lookup` producto |
 | 8 | Lectura | Redis + MongoDB | Combinación en la aplicación |
 | 9 | Lectura | MongoDB | Una sola colección |
-| 10 | Lectura | MongoDB | *Pendiente* |
-| 11 | Agregación (vista) | MongoDB | *Pendiente* |
-| 12 | Lectura | MongoDB | *Pendiente* |
+| 10 | Lectura | MongoDB | `$lookup` farmacéutico → ventas → cliente |
+| 11 | Agregación (vista) | MongoDB | `$group` de ventas por farmacéutico + `$lookup` farmacéutico |
+| 12 | Lectura | MongoDB | Anti-unión: `$lookup` cliente → ventas y `$size: 0` |
 | 13 | Servicio | MongoDB | Una sola colección |
 | 14 | Servicio | MongoDB + Redis | Validación de cada referencia en la aplicación; ítems embebidos |
 | 15 | Servicio | MongoDB + Redis | Venta de MongoDB → lotes de Redis por la clave `stock:{sucursal}:{producto}` |
@@ -678,9 +698,24 @@ $ python -m farmared.consultas.q02
       "matricula": "MN-18340",
       "sucursal": {"_id": "S004", "nombre": "Farmacia Nueva Córdoba", "ciudad": "Córdoba", "provincia": "Córdoba"}
     }
+  },
+  {
+    "_id": "V022",
+    "id_cliente": "C010",
+    "fecha": "2026-11-13",
+    "total": 8700,
+    "farmaceutico": {
+      "_id": "F010",
+      "nombre": "Martina",
+      "apellido": "Correa",
+      "matricula": "MN-18533",
+      "sucursal": {"_id": "S008", "nombre": "Farmacia La Plata", "ciudad": "La Plata", "provincia": "Buenos Aires"}
+    }
   }
 ]
 ```
+
+Son tres: V012 y V011 de los datos provistos y V022 de los adicionales.
 
 ### Consulta 3 — Historial de un cliente
 
@@ -739,7 +774,7 @@ db.ventas.aggregate([
 $ python -m farmared.consultas.q03 C001
 ```
 
-Lucía Fernández (C001) tiene 6 registros:
+Lucía Fernández (C001) tiene 7 registros:
 
 | Fecha | Registro | Id | Estado | Total |
 |---|---|---|---|---|
@@ -749,6 +784,7 @@ Lucía Fernández (C001) tiene 6 registros:
 | 2026-10-02 | venta | V013 | Completada | 4400 |
 | 2026-10-08 | receta | RC008 | Completada | |
 | 2026-10-08 | venta | V010 | Completada | 7100 |
+| 2026-11-02 | venta | V025 | Completada | 8700 |
 
 Los dos primeros elementos del historial:
 
@@ -787,8 +823,12 @@ Los dos primeros elementos del historial:
 Casos borde:
 
 ```text
-$ python -m farmared.consultas.q03 C016      # dado de baja y sin movimientos
-{"cliente": {"_id": "C016", ..., "activo": false}, "historial": []}
+$ python -m farmared.consultas.q03 C008      # dado de baja y sin movimientos
+{"cliente": {"_id": "C008", ..., "activo": false}, "historial": []}
+
+$ python -m farmared.consultas.q03 C016      # dado de baja, con una receta y sin ventas
+{"cliente": {"_id": "C016", ..., "activo": false},
+ "historial": [{"_id": "RC019", ..., "registro": "receta", "fecha": "2026-10-30"}]}
 
 $ python -m farmared.consultas.q03 C099
 ✘ no existe el cliente C099
@@ -798,13 +838,188 @@ $ python -m farmared.consultas.q03 C099
 
 **Enunciado:** clientes con más de una receta registrada, indicando la cantidad.
 
-*Pendiente: integrante 3.*
+**Motor:** MongoDB, colecciones `recetas` y `clientes`.
+
+**Código:** `farmared/consultas/q04.py`, función `ejecutar(minimo=2)`.
+
+| Función | Parámetros | Retorno |
+|---|---|---|
+| `ejecutar(minimo=2)` | Cantidad mínima de recetas, inclusive. Con el valor por defecto, "más de una". | Lista ordenada por cantidad de recetas (de mayor a menor) y por id. Cada elemento trae `_id` (el id del cliente), `cantidad_recetas` y `cliente` con el documento completo. |
+
+#### Cómo se resuelve la relación
+
+La receta **referencia** al cliente (`id_cliente`): un cliente acumula recetas sin límite y embeberlas haría crecer su documento sin techo (Clase 13, pp. 16–20).
+
+El orden de las etapas es la decisión de diseño de esta consulta. El pipeline arranca en `recetas` y agrupa **antes** de unir: así el `$lookup` con `clientes` recibe un documento por cliente que cumple, no uno por receta. Al revés (arrancar en `clientes`, traer todas sus recetas y contarlas) se leerían todos los clientes, incluidos los que no tienen ninguna.
+
+#### Sentencia
+
+```python
+db.recetas.aggregate([
+    {"$group": {"_id": "$id_cliente", "cantidad_recetas": {"$sum": 1}}},
+    {"$match": {"cantidad_recetas": {"$gte": 2}}},
+    {"$lookup": {
+        "from": "clientes",
+        "localField": "_id",
+        "foreignField": "_id",
+        "as": "cliente",
+    }},
+    {"$set": {"cliente": {"$ifNull": [{"$first": "$cliente"}, None]}}},
+    {"$sort": {"cantidad_recetas": -1, "_id": 1}},
+])
+```
+
+- `$group` con `$sum: 1` cuenta: `_id` del grupo es el id del cliente, que después sirve de `localField` del `$lookup` sin ninguna conversión.
+- `$match` va **después** del `$group`, porque el filtro es sobre el resultado del conteo, no sobre las recetas.
+- `$sort` desempata por `_id` para que dos clientes con la misma cantidad salgan siempre en el mismo orden.
+
+#### Decisiones
+
+- **Estado de la receta:** cuentan todas, en cualquier estado ("Vigente", "Completada", "Vencida"). La consulta pide recetas *registradas*, y una receta vencida o ya completada también quedó registrada a nombre del cliente. Si se contaran solo las vigentes, la consulta dejaría de responder "cuántas recetas tiene este cliente" y pasaría a responder "cuántas puede usar", que es otra cosa.
+- **Clientes dados de baja:** se listan igual. La baja es lógica y su historial se conserva; `cliente.activo` muestra el estado.
+- **Umbral como parámetro:** la consigna pide "más de una", que es el valor por defecto. Queda parametrizado porque el mismo pipeline responde "con más de dos", "más de tres", etc.
+
+#### Ejemplo
+
+```text
+$ python -m farmared.consultas.q04
+```
+
+Devuelve 7 clientes:
+
+| Cliente | | Recetas |
+|---|---|---|
+| C003 | Carla Ruiz | 3 |
+| C001 | Lucía Fernández | 2 |
+| C002 | Martín Gómez | 2 |
+| C006 | Ricardo Paz | 2 |
+| C009 | Valentina Ríos | 2 |
+| C010 | Diego Ferreyra | 2 |
+| C013 | Agustina Molina | 2 |
+
+C003 encabeza con RC002 (prolongada, vigente), RC023 (prolongada, vigente) y RC024 (simple, vencida y nunca dispensada): las tres cuentan. El primero completo:
+
+```json
+{
+  "_id": "C003",
+  "cantidad_recetas": 3,
+  "cliente": {
+    "_id": "C003",
+    "nombre": "Carla",
+    "apellido": "Ruiz",
+    "dni": "40123456",
+    "email": "carla.r@gmail.com",
+    "telefono": "3515334455",
+    "ciudad": "Córdoba",
+    "provincia": "Córdoba",
+    "obra_social": "PAMI",
+    "nro_afiliado": "PA-771203",
+    "activo": true
+  }
+}
+```
+
+Con `--minimo 3` queda solo C003.
 
 ### Consulta 5 — Ventas de los últimos 60 días por farmacéutico
 
 **Enunciado:** farmacéuticos activos y cantidad de ventas registradas en los últimos 60 días (excluyendo anuladas). Deben aparecer también los que tienen cero.
 
-*Pendiente: integrante 3.*
+**Motor:** MongoDB, colecciones `farmaceuticos` y `ventas`.
+
+**Código:** `farmared/consultas/q05.py`, función `ejecutar(hoy=None, dias=60)`.
+
+| Función | Parámetros | Retorno |
+|---|---|---|
+| `ejecutar(hoy=None, dias=60)` | Fecha de referencia; por defecto, la del sistema. Largo de la ventana en días. | Lista de farmacéuticos activos ordenada por cantidad de ventas (de mayor a menor) y por id. Cada uno trae sus campos más `ventas` con la cantidad. |
+
+#### Cómo se resuelve la relación
+
+La frase que define el diseño es **"deben aparecer también los que tienen cero"**. Agrupar `ventas` por `id_farmaceutico` es el camino natural y es el equivocado: una agregación sobre `ventas` solo puede devolver farmacéuticos que vendieron algo. El que no vendió nada no tiene ningún documento que lo represente en esa colección.
+
+Por eso el pipeline arranca en `farmaceuticos` y va a buscar las ventas con `$lookup`, que funciona como un *left outer join* (Clase 13, pp. 21–24): el farmacéutico sin ventas queda con el arreglo vacío y `$size` le da 0, en lugar de desaparecer del resultado.
+
+El `$lookup` lleva un `pipeline` propio, que se ejecuta del lado de `ventas`: filtra por fecha y estado **antes** de traer nada. Sin eso se traerían todas las ventas históricas de cada farmacéutico para después descartarlas. El filtro usa el índice `ventas {id_farmaceutico, fecha}`, y el `$project` deja solo el `_id`, porque las ventas no se muestran: solo se cuentan.
+
+#### Sentencia
+
+```python
+db.farmaceuticos.aggregate([
+    {"$match": {"activo": True}},
+    {"$lookup": {
+        "from": "ventas",
+        "localField": "_id",
+        "foreignField": "id_farmaceutico",
+        "as": "recientes",
+        "pipeline": [
+            {"$match": {"estado": {"$ne": "Anulada"},
+                        "fecha": {"$gte": desde, "$lte": hasta}}},
+            {"$project": {"_id": 1}},
+        ],
+    }},
+    {"$set": {"ventas": {"$size": "$recientes"}}},
+    {"$unset": "recientes"},
+    {"$sort": {"ventas": -1, "_id": 1}},
+])
+```
+
+- `desde` y `hasta` los calcula Python: `hoy - 60 días` y `hoy`, convertidos con `fechas.a_mongo` a las 00:00 de ese día, igual que los guarda la carga.
+- `$ne: "Anulada"` en lugar de `$in: ["Completada", "Pendiente"]`: si mañana apareciera otro estado, se contaría, que es lo que pide "excluyendo anuladas".
+
+#### Decisiones
+
+- **Ventas "Pendiente":** se cuentan. La consulta excluye explícitamente las anuladas y nada más; una venta pendiente está registrada y puede concretarse.
+- **Ventana:** `[hoy - 60, hoy]`, inclusive en los dos extremos. Una venta de hoy cuenta.
+- **Farmacéuticos dados de baja:** no aparecen, porque la consulta pide los activos. Son F004 y F016. Es la diferencia con la consulta 10, que sí los incluye porque ahí interesa la venta histórica y no quién está en funciones.
+- **Sin sucursal:** la consulta pide farmacéuticos y cantidad, así que no se une con `sucursales`. El `id_sucursal` del farmacéutico queda en el resultado para quien lo necesite.
+
+#### Ejemplo
+
+```text
+$ python -m farmared.consultas.q05 --hoy 2026-11-14      # ventana 2026-09-15 … 2026-11-14
+```
+
+Devuelve los 16 farmacéuticos activos; quedan afuera F004 y F016, que están dados de baja:
+
+| Farmacéutico | | Sucursal | Ventas |
+|---|---|---|---|
+| F001 | Mariana Quiroga | S001 | 3 |
+| F005 | Natalia Giménez | S003 | 3 |
+| F008 | Lucas Moreno | S006 | 3 |
+| F002 | Sebastián Ledesma | S001 | 2 |
+| F003 | Carolina Benítez | S002 | 2 |
+| F010 | Martina Correa | S008 | 2 |
+| F013 | Ignacio Luna | S011 | 2 |
+| F006 | Matías Sandoval | S004 | 1 |
+| F017 | Bruno Peralta | S003 | 1 |
+| F007, F009, F011, F012, F014, F015, F018 | | | 0 |
+
+Casos borde: **siete farmacéuticos con cero**, que son el punto de la consulta. F002 cuenta 2 (V008 y V016) y no 3, porque V015 está anulada. F005 cuenta 3 incluyendo V012, que está "Pendiente". V003, del 10/09, queda afuera por un día. V029, de hoy, cuenta.
+
+El primero y el último:
+
+```json
+{
+  "_id": "F001",
+  "nombre": "Mariana",
+  "apellido": "Quiroga",
+  "matricula": "MN-18041",
+  "cargo": "Director Técnico",
+  "id_sucursal": "S001",
+  "activo": true,
+  "ventas": 3
+}
+{
+  "_id": "F018",
+  "nombre": "Andrea",
+  "apellido": "Toledo",
+  "matricula": "MN-18823",
+  "cargo": "Director Técnico",
+  "id_sucursal": "S015",
+  "activo": true,
+  "ventas": 0
+}
+```
 
 ### Consulta 6 — Recetas prolongadas con la dispensa atrasada
 
@@ -915,7 +1130,94 @@ RC002 (35 días), RC003 (19 días)
 
 **Enunciado:** top 5 productos más vendidos (unidades), considerando solo ventas "Completada".
 
-*Pendiente: integrante 3.*
+**Motor:** MongoDB, colecciones `ventas` y `productos`.
+
+**Código:** `farmared/consultas/q07.py`, función `ejecutar(limite=5)`.
+
+| Función | Parámetros | Retorno |
+|---|---|---|
+| `ejecutar(limite=5)` | Cuántos productos devolver. | Lista ordenada por unidades (de mayor a menor) y por id. Cada elemento trae `_id` (el id del producto), `unidades`, `ventas` (en cuántas ventas distintas apareció) y `producto` con el documento completo. |
+
+#### Cómo se resuelve la relación
+
+Los ítems están **embebidos** en la venta: es una relación "contiene", y siempre se leen y escriben con ella (Clase 13, pp. 16–20). Para esta consulta eso es una ventaja: las unidades vendidas salen de una sola colección, sin unir nada. `$unwind` abre un documento por ítem y `$group` suma las cantidades por producto.
+
+El `$lookup` con `productos` va **después** de `$sort` y `$limit`, no antes. Así la unión se hace sobre cinco documentos en lugar de sobre todo el catálogo de productos vendidos. Es el mismo criterio que en la consulta 1, donde el `$match` va antes del `$lookup`: filtrar o recortar primero, unir después.
+
+#### Sentencia
+
+```python
+db.ventas.aggregate([
+    {"$match": {"estado": "Completada"}},
+    {"$unwind": "$items"},
+    {"$group": {
+        "_id": "$items.id_producto",
+        "unidades": {"$sum": "$items.cantidad"},
+        "ventas": {"$addToSet": "$_id"},
+    }},
+    {"$set": {"ventas": {"$size": "$ventas"}}},
+    {"$sort": {"unidades": -1, "_id": 1}},
+    {"$limit": 5},
+    {"$lookup": {
+        "from": "productos",
+        "localField": "_id",
+        "foreignField": "_id",
+        "as": "producto",
+    }},
+    {"$set": {"producto": {"$ifNull": [{"$first": "$producto"}, None]}}},
+])
+```
+
+- `$match` sobre `estado` usa el índice `ventas {estado}` y descarta las pendientes y anuladas antes de abrir los ítems.
+- `$addToSet` con el `_id` de la venta y después `$size` cuenta **ventas distintas**: si una venta repitiera el mismo producto en dos ítems, se cuenta una sola vez. `$sum: 1` habría contado ítems, no ventas.
+- `$sort` desempata por `_id`. Sin ese desempate, dos productos con las mismas unidades podrían entrar y salir del top 5 entre dos ejecuciones idénticas, porque MongoDB no garantiza un orden estable para los empates.
+
+#### Decisiones
+
+- **Solo "Completada":** lo pide la consulta. Una venta "Pendiente" todavía puede no concretarse y una "Anulada" no se vendió.
+- **Unidades, no importe:** el ranking es por `cantidad`, como dice el enunciado, no por `cantidad × precio_unit`. Son rankings distintos: un producto caro factura más vendiendo menos unidades.
+- **Productos discontinuados:** entran si se vendieron. El ranking es histórico y una baja posterior no borra las ventas; `producto.activo` muestra el estado actual.
+- **Empates en el corte:** se resuelven por id, que es arbitrario pero reproducible. Queda registrado en el ejemplo, donde hay un empate justo en el quinto puesto.
+
+#### Ejemplo
+
+```text
+$ python -m farmared.consultas.q07
+```
+
+| # | Producto | | Unidades | Ventas |
+|---|---|---|---|---|
+| 1 | PRD001 | Paracetamol 500mg x30 | 10 | 6 |
+| 2 | PRD011 | Loratadina 10mg x10 | 10 | 5 |
+| 3 | PRD005 | Metformina 850mg x60 | 8 | 3 |
+| 4 | PRD015 | Cetirizina 10mg x10 | 5 | 2 |
+| 5 | PRD004 | Losartán 50mg x30 | 3 | 2 |
+
+Dos empates muestran para qué sirve el desempate por id:
+
+- **En la punta:** PRD001 y PRD011 tienen 10 unidades cada uno. PRD001 sale primero por id, aunque aparezca en 6 ventas contra 5.
+- **En el corte:** PRD004 y PRD022 (Vitamina C) tienen 3 unidades cada uno. Entra PRD004 y queda afuera PRD022. Con `--limite 7` se ve el corte completo: PRD004 (3), PRD022 (3), PRD003 (2).
+
+El primero:
+
+```json
+{
+  "_id": "PRD001",
+  "unidades": 10,
+  "ventas": 6,
+  "producto": {
+    "_id": "PRD001",
+    "nombre": "Paracetamol 500mg x30",
+    "principio_activo": "Paracetamol",
+    "categoria": "Analgésico",
+    "presentacion": "Comprimidos x30",
+    "condicion_venta": "Venta libre",
+    "precio_unit": 2800,
+    "id_proveedor": "PRV001",
+    "activo": true
+  }
+}
+```
 
 ### Consulta 8 — Lotes con stock bajo
 
@@ -1049,10 +1351,25 @@ db.ventas.find({
 $ python -m farmared.consultas.q09
 ```
 
-Con los datos provistos devuelve V013 ($4.400) y V014 ($4.600). V015 ($3.500) queda afuera porque está anulada, y V002 ($5.750) porque supera el tope.
+Devuelve tres ventas, en orden cronológico: V028 ($2.800, de los adicionales, del 20/05/2025), V013 ($4.400) y V014 ($4.600). V015 ($3.500) y V023 ($3.500) quedan afuera porque están anuladas, y V002 ($5.750) porque supera el tope.
 
 ```json
 [
+  {
+    "_id": "V028",
+    "id_cliente": "C020",
+    "id_farmaceutico": "F003",
+    "id_sucursal": "S002",
+    "id_receta": null,
+    "fecha": "2025-05-20",
+    "tipo": "Venta libre",
+    "medio_pago": "Efectivo",
+    "total": 2800,
+    "estado": "Completada",
+    "items": [
+      {"id_detalle": "D038", "id_producto": "PRD001", "cantidad": 1, "precio_unit": 2800}
+    ]
+  },
   {
     "_id": "V013",
     "id_cliente": "C001",
@@ -1091,19 +1408,342 @@ Con los datos provistos devuelve V013 ($4.400) y V014 ($4.600). V015 ($3.500) qu
 
 **Enunciado:** todos los clientes atendidos en una sucursal determinada (a través del farmacéutico que registró la venta, esté activo o no).
 
-*Pendiente: integrante 3.*
+**Motor:** MongoDB, colecciones `farmaceuticos`, `ventas` y `clientes`.
+
+**Código:** `farmared/consultas/q10.py`, función `ejecutar(id_sucursal)`.
+
+| Función | Parámetros | Retorno |
+|---|---|---|
+| `ejecutar(id_sucursal)` | Id de la sucursal, por ejemplo `"S001"`. | `{"sucursal": <documento>, "clientes": [...]}`, ordenado por id de cliente. Cada cliente trae `ventas` (cuántas le registraron en esa sucursal), `ultima_compra`, `farmaceuticos` (quiénes lo atendieron) y `cliente` con el documento completo. Lanza `ErrorDeValidacion` si la sucursal no existe. |
+
+#### Cómo se resuelve la relación
+
+Son **dos saltos de referencia**: sucursal → farmacéuticos → ventas → cliente. El pipeline arranca en `farmaceuticos` filtrando por `id_sucursal` (índice que crea la carga), salta a las ventas de cada uno con `$lookup` y recién después agrupa por cliente, así cada uno aparece una sola vez aunque lo hayan atendido varios farmacéuticos de la misma sucursal.
+
+El recorrido **no usa `ventas.id_sucursal`**, que la venta guarda copiada del farmacéutico al registrarla (sección 2.2). Esa copia existe para que la consulta 15 sepa de qué lotes descontar, y para esta consulta daría el mismo resultado hoy; pero la consulta pide explícitamente pasar por "el farmacéutico que registró la venta", y por el camino largo el resultado se mantiene aunque un farmacéutico cambie de sucursal.
+
+#### Sentencia
+
+```python
+db.farmaceuticos.aggregate([
+    {"$match": {"id_sucursal": id_sucursal}},
+    {"$lookup": {
+        "from": "ventas",
+        "localField": "_id",
+        "foreignField": "id_farmaceutico",
+        "as": "ventas",
+        "pipeline": [{"$project": {"id_cliente": 1, "fecha": 1, "estado": 1}}],
+    }},
+    {"$unwind": "$ventas"},
+    {"$group": {
+        "_id": "$ventas.id_cliente",
+        "ventas": {"$sum": 1},
+        "ultima_compra": {"$max": "$ventas.fecha"},
+        "farmaceuticos": {"$addToSet": "$_id"},
+    }},
+    {"$set": {"farmaceuticos": {"$sortArray": {"input": "$farmaceuticos", "sortBy": 1}}}},
+    {"$lookup": {"from": "clientes", "localField": "_id",
+                 "foreignField": "_id", "as": "cliente"}},
+    {"$set": {"cliente": {"$ifNull": [{"$first": "$cliente"}, None]}}},
+    {"$sort": {"_id": 1}},
+])
+```
+
+- El `$match` inicial **no filtra por `activo`**: incluye a los farmacéuticos dados de baja, como pide la consulta.
+- `$unwind` sobre `ventas` descarta a los farmacéuticos que no vendieron nada, que es correcto: no aportan clientes. Es lo contrario de la consulta 5, donde el farmacéutico sin ventas tiene que aparecer igual.
+- `$group` por `id_cliente` deduplica: `$addToSet` junta a los farmacéuticos que lo atendieron y `$sortArray` deja ese arreglo en orden fijo, para que dos ejecuciones devuelvan lo mismo.
+- La existencia de la sucursal se valida antes, con un `find_one`: así "no existe S099" se distingue de "S099 no atendió a nadie", que devuelve la sucursal con la lista vacía.
+
+#### Decisiones
+
+- **Farmacéuticos dados de baja:** se incluyen, porque lo dice la consulta. La venta ocurrió en esa sucursal aunque quien la registró ya no trabaje ahí.
+- **Estado de la venta:** cuentan todas. Un cliente con una venta "Pendiente" o "Anulada" igual fue atendido en el mostrador, que es lo que la consulta pregunta.
+- **Droguerías:** la consulta acepta cualquier sucursal, también las de tipo "Droguería". S005 no tiene ventas y devuelve la lista vacía.
+
+#### Ejemplo
+
+```text
+$ python -m farmared.consultas.q10 S001
+```
+
+S001 (Farmacia Palermo) tiene dos farmacéuticos, F001 y F002, y entre los dos atendieron a 3 clientes:
+
+| Cliente | | Ventas | Última compra | Atendido por |
+|---|---|---|---|---|
+| C001 | Lucía Fernández | 3 | 2026-10-02 | F001, F002 |
+| C006 | Ricardo Paz | 5 | 2026-10-28 | F001, F002 |
+| C017 | Paula Domínguez | 1 | 2026-11-10 | F001 |
+
+C001 y C006 muestran la deduplicación: los atendieron los dos farmacéuticos y aparecen una sola vez, con el total sumado. El primero:
+
+```json
+{
+  "_id": "C001",
+  "ventas": 3,
+  "ultima_compra": "2026-10-02",
+  "farmaceuticos": ["F001", "F002"],
+  "cliente": {
+    "_id": "C001",
+    "nombre": "Lucía",
+    "apellido": "Fernández",
+    "dni": "31245678",
+    "email": "lucia.f@gmail.com",
+    "telefono": "1145112233",
+    "ciudad": "Buenos Aires",
+    "provincia": "Buenos Aires",
+    "obra_social": "OSDE",
+    "nro_afiliado": "OS-310045",
+    "activo": true
+  }
+}
+```
+
+El caso del farmacéutico dado de baja está en S002 (Farmacia Belgrano), que devuelve 3 clientes: C001 y C016 atendidos por F003, y **C004 atendido por F004, que está dado de baja**. Si el `$match` filtrara por `activo`, C004 desaparecería y la respuesta sería incompleta.
+
+S005 (Droguería Central) no registró ventas y devuelve la sucursal con la lista vacía. Una sucursal que no existe se distingue de ese caso:
+
+```text
+$ python -m farmared.consultas.q10 S099
+✘ no existe la sucursal S099
+```
 
 ### Consulta 11 — Ingresos por farmacéutico en el mes actual
 
 **Enunciado:** vista agregada: ingresos totales por farmacéutico en el mes actual (solo ventas "Completada").
 
-*Pendiente: integrante 3.*
+**Motor:** MongoDB, vista `ingresos_farmaceutico_mes` sobre `ventas`, más `farmaceuticos`.
+
+**Código:** `farmared/consultas/q11.py`, función `ejecutar(hoy=None, recrear=False)`.
+
+| Función | Parámetros | Retorno |
+|---|---|---|
+| `ejecutar(hoy=None, recrear=False)` | Mes de referencia; sin este parámetro se lee la vista. `recrear` reescribe la definición de la vista. | Lista ordenada por ingresos (de mayor a menor) y por id. Cada elemento trae `_id` (el id del farmacéutico), `ingresos`, `ventas` y `farmaceutico` con el documento completo. |
+| `crear_vista(recrear=False)` | — | Crea la vista si falta. Devuelve `True` si la tocó. |
+
+#### Cómo se resuelve la relación
+
+Una **vista** en MongoDB es un pipeline guardado sobre una colección: no almacena datos y se ejecuta en cada lectura (Clase 13). Eso es exactamente lo que hace falta acá, porque el resultado tiene que cambiar solo cuando cambia el mes, y porque así la definición del cálculo vive en la base y no repetida en cada cliente que quiera el reporte.
+
+El problema de diseño es que **una vista no recibe parámetros**. "El mes actual" no se puede pasar desde afuera, así que se calcula adentro, con `$$NOW`: la fecha del servidor en el momento de la consulta. `$dateTrunc` la lleva al primer día del mes y `$dateAdd` suma un mes para el límite superior. Si en lugar de eso la vista se definiera con fechas fijas, quedaría congelada en el mes en que se creó.
+
+La relación con `farmaceuticos` se resuelve con `$lookup` dentro de la vista, después del `$group`: se agrupa primero y se unen los datos de los pocos farmacéuticos que facturaron, no de todos.
+
+#### Sentencia
+
+Definición de la vista:
+
+```python
+db.create_collection(
+    "ingresos_farmaceutico_mes",
+    viewOn="ventas",
+    pipeline=[
+        {"$match": {"estado": "Completada", "$expr": {"$and": [
+            {"$gte": ["$fecha", {"$dateTrunc": {"date": "$$NOW", "unit": "month"}}]},
+            {"$lt": ["$fecha", {"$dateAdd": {
+                "startDate": {"$dateTrunc": {"date": "$$NOW", "unit": "month"}},
+                "unit": "month", "amount": 1}}]},
+        ]}}},
+        {"$group": {"_id": "$id_farmaceutico",
+                    "ingresos": {"$sum": "$total"},
+                    "ventas": {"$sum": 1}}},
+        {"$lookup": {"from": "farmaceuticos", "localField": "_id",
+                     "foreignField": "_id", "as": "farmaceutico"}},
+        {"$set": {"farmaceutico": {"$ifNull": [{"$first": "$farmaceutico"}, None]}}},
+        {"$sort": {"ingresos": -1, "_id": 1}},
+    ],
+)
+```
+
+Y la lectura, que es la de una colección cualquiera:
+
+```python
+db.ingresos_farmaceutico_mes.find()
+```
+
+- `$$NOW` obliga a usar `$expr` en el `$match`, porque el valor no es una constante sino una expresión. El costo es que ese filtro **no usa el índice** `ventas {fecha}`: con este volumen no importa, y es el precio de que la vista no quede congelada.
+- El límite superior es `$lt` del primer día del mes siguiente, no `$lte` del último día del mes: así no hay que saber si el mes tiene 28, 30 o 31 días.
+- `crear_vista()` es idempotente: si la vista ya existe, `create_collection` falla con `CollectionInvalid` y la función no hace nada. Con `--recrear` usa `collMod`, que reescribe la definición de una vista existente. Por eso la carga no necesita conocerla: `ejecutar()` la crea la primera vez que corre.
+
+#### Decisiones
+
+- **Zona horaria.** `$$NOW` viene en UTC y la carga guarda cada fecha a las 00:00 UTC del día (sección 2.1), así que los dos lados de la comparación están en la misma referencia y el mes se corta bien. El borde se desplaza tres horas: entre las 21:00 y las 00:00 del último día del mes en hora argentina, el servidor ya considera el mes siguiente. Se podría pasar `timezone` a `$dateTrunc`, pero entonces el límite quedaría a las 03:00 UTC del día 1 y se perderían las ventas de ese día, que están guardadas a las 00:00. Queda documentado como limitación.
+- **Pruebas reproducibles.** `ejecutar(hoy=...)` **no** lee la vista: corre el mismo pipeline con el mes fijo y un `$match` de rango común, que sí usa el índice. Las dos variantes comparten las etapas de agregación en una única función, así que no pueden quedar desalineadas. Se verificó que con `--hoy 2026-11-14` el resultado es idéntico al de la vista.
+- **Farmacéuticos sin ventas:** no aparecen. La consulta pide ingresos por farmacéutico, y un farmacéutico que no facturó no tiene ingresos que informar. Es lo contrario de la consulta 5, que pide explícitamente los ceros. Si se quisieran, habría que invertir el pipeline y arrancar en `farmaceuticos`, como ahí.
+- **Solo "Completada":** lo pide la consulta. Una venta pendiente todavía no es un ingreso.
+
+#### Ejemplo
+
+```text
+$ python -m farmared.consultas.q11                  # mes actual: noviembre de 2026
+```
+
+| Farmacéutico | | Ingresos | Ventas |
+|---|---|---|---|
+| F013 | Ignacio Luna | $40.400 | 2 |
+| F008 | Lucas Moreno | $32.700 | 3 |
+| F010 | Martina Correa | $18.700 | 1 |
+| F001 | Mariana Quiroga | $12.800 | 1 |
+| F017 | Bruno Peralta | $10.800 | 1 |
+| F003 | Carolina Benítez | $8.700 | 1 |
+
+De las ventas de noviembre quedan afuera V022 (Pendiente) y V023 (Anulada). V026, del 28/10, tampoco entra: está dentro de la ventana de la consulta 5 pero no en el mes actual, que es la diferencia entre las dos.
+
+El primero:
+
+```json
+{
+  "_id": "F013",
+  "ingresos": 40400,
+  "ventas": 2,
+  "farmaceutico": {
+    "_id": "F013",
+    "nombre": "Ignacio",
+    "apellido": "Luna",
+    "matricula": "MN-18664",
+    "cargo": "Director Técnico",
+    "id_sucursal": "S011",
+    "activo": true
+  }
+}
+```
+
+Que la vista no quede congelada se comprueba leyendo su definición guardada en la base, que tiene `$$NOW` y no una fecha:
+
+```text
+$ mongosh --quiet mongodb://mongo:27017/farmared --eval \
+    'JSON.stringify(db.getCollectionInfos({name:"ingresos_farmaceutico_mes"})[0].options.pipeline[0])'
+{"$match":{"estado":"Completada","$expr":{"$and":[
+  {"$gte":["$fecha",{"$dateTrunc":{"date":"$$NOW","unit":"month"}}]},
+  {"$lt":["$fecha",{"$dateAdd":{"startDate":{"$dateTrunc":{"date":"$$NOW","unit":"month"}},
+                                "unit":"month","amount":1}}]}]}}}
+```
+
+Y el mismo cálculo sobre otro mes, con el pipeline parametrizado, da las ventas de octubre: `--hoy 2026-10-31` devuelve F001 $11.000, F002 $7.800, F003 $7.100 y F005 $4.600.
 
 ### Consulta 12 — Clientes sin ventas en el último año
 
 **Enunciado:** clientes sin ventas registradas en el último año.
 
-*Pendiente: integrante 3.*
+**Motor:** MongoDB, colecciones `clientes` y `ventas`.
+
+**Código:** `farmared/consultas/q12.py`, función `ejecutar(hoy=None, dias=365)`.
+
+| Función | Parámetros | Retorno |
+|---|---|---|
+| `ejecutar(hoy=None, dias=365)` | Fecha de referencia; por defecto, la del sistema. Largo de la ventana en días. | Lista de clientes ordenada por id, con sus campos más `ultima_venta`, que es `null` si nunca compró. |
+
+#### Cómo se resuelve la relación
+
+Es una **anti-unión**: no se piden los clientes que cumplen algo, se piden los que **no** tienen nada. Por eso el pipeline arranca en `clientes` y no en `ventas`: una agregación sobre `ventas` no puede devolver a un cliente que no compró, porque no tiene ningún documento ahí. Es el mismo razonamiento que en la consulta 5, aplicado al revés: ahí interesaban los ceros junto con el resto, acá interesan **solo** los ceros.
+
+`$lookup` funciona como un *left outer join* (Clase 13, pp. 21–24), así que el cliente sin ventas en la ventana queda con el arreglo vacío, y `$size: 0` se queda justamente con esos.
+
+El `$lookup` lleva un `pipeline` propio que filtra por fecha del lado de `ventas` y corta en `$limit: 1`: solo hace falta saber **si existe** al menos una venta, no traerlas todas. Un segundo `$lookup`, ya sobre los pocos clientes que cumplen, trae la fecha de su última venta de cualquier época, que es lo que distingue al que nunca compró del que compró hace mucho.
+
+#### Sentencia
+
+```python
+db.clientes.aggregate([
+    {"$lookup": {
+        "from": "ventas",
+        "localField": "_id",
+        "foreignField": "id_cliente",
+        "as": "del_anio",
+        "pipeline": [
+            {"$match": {"fecha": {"$gte": desde, "$lte": hasta}}},
+            {"$limit": 1},
+            {"$project": {"_id": 1}},
+        ],
+    }},
+    {"$match": {"del_anio": {"$size": 0}}},
+    {"$unset": "del_anio"},
+    {"$lookup": {
+        "from": "ventas",
+        "localField": "_id",
+        "foreignField": "id_cliente",
+        "as": "ultima",
+        "pipeline": [{"$sort": {"fecha": -1}}, {"$limit": 1}, {"$project": {"fecha": 1}}],
+    }},
+    {"$set": {"ultima_venta": {"$ifNull": [{"$first": "$ultima.fecha"}, None]}}},
+    {"$unset": "ultima"},
+    {"$sort": {"_id": 1}},
+])
+```
+
+- `$size: 0` es el filtro de la anti-unión: "no encontró ninguna".
+- El segundo `$lookup` va **después** del `$match`, así se ejecuta solo sobre los clientes que ya cumplen y no sobre todos.
+- `"$ultima.fecha"` sobre un arreglo de documentos devuelve el arreglo de sus `fecha`; `$first` toma la única, y `$ifNull` la deja en `null` cuando el cliente nunca compró.
+- Los dos `$lookup` usan el índice `ventas {id_cliente, fecha}` que crea la carga.
+
+#### Decisiones
+
+- **Estado de la venta: cuentan todas.** Una venta "Pendiente" o "Anulada" igual quedó registrada a nombre del cliente, que es lo que la consulta pregunta. **Es una de las dudas para la cátedra** (ver `docs/division.md`), y con estos datos la respuesta cambia: si las anuladas no contaran, aparecería también C015, cuya única venta del año es V023, anulada. El cambio es una línea: agregar `"estado": {"$ne": "Anulada"}` al `$match` del primer `$lookup`.
+- **Clientes dados de baja:** se listan. Un cliente inactivo sin compras hace más de un año es justamente el caso que la consulta busca; `activo` muestra el estado. Son C008, C016 y C020.
+- **Ventana:** `[hoy - 365, hoy]`. Se usan 365 días corridos en lugar de "el mismo día del año pasado" para no tener que decidir qué pasa con el 29 de febrero.
+- **`ultima_venta` no la pide la consulta,** pero se agrega porque es lo que hace verificable el resultado: muestra si el cliente nunca compró o si compró antes de la ventana.
+
+#### Ejemplo
+
+```text
+$ python -m farmared.consultas.q12 --hoy 2026-11-14     # ventana 2025-11-14 … 2026-11-14
+```
+
+Devuelve 9 clientes:
+
+| Cliente | | Activo | Última venta |
+|---|---|---|---|
+| C004 | Federico Navarro | sí | 2025-09-18 |
+| C008 | Hugo Mansilla | no | — |
+| C011 | Elena Sosa | sí | — |
+| C012 | Tomás Aguirre | sí | — |
+| C014 | Gabriel Herrera | sí | — |
+| C016 | Jorge Castro | no | — |
+| C018 | Nicolás Vega | sí | — |
+| C019 | Lorena Medina | sí | — |
+| C020 | Ramiro Ortiz | no | 2025-05-20 |
+
+Los dos casos que la consulta tiene que cubrir están los dos presentes:
+
+- **Compró, pero hace más de un año:** C004 (V001, del 18/09/2025) y C020 (V028, del 20/05/2025), a dos y a seis meses del borde de la ventana. C020 además está dado de baja.
+- **Nunca compró:** los otros siete, con `ultima_venta: null`.
+
+Un cliente, C004:
+
+```json
+{
+  "_id": "C004",
+  "nombre": "Federico",
+  "apellido": "Navarro",
+  "dni": "33987654",
+  "email": "fede.n@gmail.com",
+  "telefono": "1156445566",
+  "ciudad": "Vicente López",
+  "provincia": "Buenos Aires",
+  "obra_social": "IOMA",
+  "nro_afiliado": "IO-450912",
+  "activo": true,
+  "ultima_venta": "2025-09-18"
+}
+```
+
+Y uno que nunca compró, C008, que además está dado de baja:
+
+```json
+{
+  "_id": "C008",
+  "nombre": "Hugo",
+  "apellido": "Mansilla",
+  "dni": "25678901",
+  "email": "hugo.m@gmail.com",
+  "telefono": "1178889900",
+  "ciudad": "Buenos Aires",
+  "provincia": "Buenos Aires",
+  "obra_social": "Sin cobertura",
+  "nro_afiliado": null,
+  "activo": false,
+  "ultima_venta": null
+}
+```
 
 ### Consulta 13 — ABM de clientes
 
@@ -1311,20 +1951,22 @@ with client.start_session() as sesion:
     db.contadores.find_one_and_update({"_id": "ventas"}, {"$inc": {"ultimo": 1}},
                                       return_document=ReturnDocument.AFTER)
 
-    db.ventas.insert_one({"_id": "V017", ..., "estado": "Completada", "items": [...]},
+    db.ventas.insert_one({"_id": "V030", ..., "estado": "Completada", "items": [...]},
                          session=sesion)
     db.recetas.find_one_and_update(
         {"_id": id_receta, "estado": "Vigente", "dispensas_realizadas": n},
         {"$set": {"dispensas_realizadas": n + 1, "proxima_dispensa": hoy + 30 días}},
         session=sesion)           # o estado "Completada" y proxima_dispensa null
 
-    q15.ejecutar("V017", hoy, sesion)   # script Lua en Redis: descuenta o rechaza
-    sesion.commit_transaction()         # si falla y la venta no quedó: stock.reponer("V017")
+    q15.ejecutar("V030", hoy, sesion)   # script Lua en Redis: descuenta o rechaza
+    sesion.commit_transaction()         # si falla y la venta no quedó: stock.reponer("V030")
 ```
 
 #### Ejemplos
 
 Desde la terminal del contenedor `app`, después de `python -m farmared.carga`, el 14/11/2026. Los resultados dependen de la fecha: L033 vence el 20/11/2026.
+
+Los ids de las ventas nuevas salen del contador, que arranca en el último id de los CSV. Con los datos cargados (29 ventas, V001–V029) la primera venta registrada es **V030**; si cambiaran los registros adicionales, los ids de estos ejemplos se corren.
 
 **Venta exitosa con FEFO, un lote vencido y una receta prolongada.** Una venta de 20 unidades de PRD003 (bajo receta) y 35 de PRD001 (venta libre) en S001, con la primera dispensa de una receta de tratamiento prolongado.
 
@@ -1354,7 +1996,7 @@ $ python -m farmared.consultas.q14 --cliente C011 --farmaceutico F001 \
 ```json
 {
   "venta": {
-    "_id": "V017",
+    "_id": "V030",
     "id_cliente": "C011",
     "id_farmaceutico": "F001",
     "id_sucursal": "S001",
@@ -1365,8 +2007,8 @@ $ python -m farmared.consultas.q14 --cliente C011 --farmaceutico F001 \
     "total": 294000,
     "estado": "Completada",
     "items": [
-      { "id_detalle": "D023", "id_producto": "PRD003", "cantidad": 20, "precio_unit": 9800 },
-      { "id_detalle": "D024", "id_producto": "PRD001", "cantidad": 35, "precio_unit": 2800 }
+      { "id_detalle": "D040", "id_producto": "PRD003", "cantidad": 20, "precio_unit": 9800 },
+      { "id_detalle": "D041", "id_producto": "PRD001", "cantidad": 35, "precio_unit": 2800 }
     ]
   },
   "receta": {
@@ -1376,7 +2018,7 @@ $ python -m farmared.consultas.q14 --cliente C011 --farmaceutico F001 \
                  "dispensas_realizadas": 1, "proxima_dispensa": "2026-12-14", "estado": "Vigente", "...": "..." }
   },
   "stock": {
-    "id_venta": "V017",
+    "id_venta": "V030",
     "id_sucursal": "S001",
     "lotes": [
       { "_id": "L033", "id_producto": "PRD003", "vencimiento": "2026-11-20", "antes": 15,  "descontadas": 15, "despues": 0 },
@@ -1400,7 +2042,7 @@ $ python -m farmared.consultas.q14 --cliente C003 --farmaceutico F006 \
     --item PRD004:2 --medio-pago "Obra social" --receta RC002
 ```
 
-Después: V018 por $12.400; RC002 queda con 3 de 3 dispensas, `proxima_dispensa: null` y estado "Completada"; L007 pasa de 22 a 20 unidades. Una nueva venta con RC002 se rechaza:
+Después: V031 por $12.400; RC002 queda con 3 de 3 dispensas, `proxima_dispensa: null` y estado "Completada"; L007 pasa de 22 a 20 unidades. Una nueva venta con RC002 se rechaza:
 
 ```text
 ✘ Rechazado: la receta RC002 no está vigente (Completada)
@@ -1533,7 +2175,7 @@ La venta exitosa de la consulta 14 muestra el descuento por FEFO lote por lote. 
 
 **Rechazo por stock: no queda nada.**
 
-*Antes:* 18 ventas (V001–V018). RC011 (C010, archivada) y RC014 (C014) con 0 dispensas y "Vigente". En S001, el único lote de PRD017 es L022, con 20 unidades pero vencido el 15/10/2026. PRD006 tiene 60 unidades en L009.
+*Antes:* 29 ventas (V001–V029). RC011 (C010, archivada) y RC014 (C014) con 0 dispensas y "Vigente". En S001, el único lote de PRD017 es L022, con 20 unidades pero vencido el 15/10/2026. PRD006 tiene 60 unidades en L009.
 
 ```text
 $ python -m farmared.consultas.q14 --cliente C010 --farmaceutico F001 \
@@ -1545,13 +2187,13 @@ $ python -m farmared.consultas.q14 --cliente C014 --farmaceutico F001 \
 ✘ Rechazado: stock vigente insuficiente en S001 (PRD006: pide 500, hay 60)
 ```
 
-*Después:* siguen siendo 18 ventas; RC011 y RC014 siguen con 0 dispensas y "Vigente"; L022 sigue con 20 unidades, L009 con 60 y los lotes de PRD003 sin cambios. En el segundo caso PRD003 sí alcanzaba, pero como PRD006 no, el script no descontó ninguno de los dos. No hay ningún `descuento:*` nuevo.
+*Después:* siguen siendo 29 ventas; RC011 y RC014 siguen con 0 dispensas y "Vigente"; L022 sigue con 20 unidades, L009 con 60 y los lotes de PRD003 sin cambios. En el segundo caso PRD003 sí alcanzaba, pero como PRD006 no, el script no descontó ninguno de los dos. No hay ningún `descuento:*` nuevo.
 
 **q15 sola:**
 
 ```text
-$ python -m farmared.consultas.q15 V017        # ya descontada por q14
-✘ Rechazado: el stock de la venta V017 ya se descontó
+$ python -m farmared.consultas.q15 V030        # ya descontada por q14
+✘ Rechazado: el stock de la venta V030 ya se descontó
 
 $ python -m farmared.consultas.q15 V003        # venta de los CSV: su stock ya está en los lotes
 ✘ Rechazado: el stock de la venta V003 ya se descontó
@@ -1713,7 +2355,7 @@ Las fallas de infraestructura no se pueden provocar desde la terminal, así que 
 - **Durabilidad de Redis.** Con fsync por segundo, una caída de Redis puede perder hasta un segundo de descuentos ya confirmados en MongoDB (Clase 17, p. 21). *Complemento (no está en las clases): `appendfsync always` lo evitaría a costa de un fsync por cada escritura.*
 - **Alta disponibilidad.** El replica set de un nodo habilita las transacciones, pero si se cae el nodo, se cae la base.
 - **Reglas que la consigna no define.** No validamos que una receta prolongada respete su próxima dispensa ni qué productos cubre una receta, y no modelamos descuentos de obra social: el precio del ítem es el de lista.
-- **Fecha de referencia.** Los datos se describen respecto del 13/10/2026, pero las consultas usan la fecha del sistema. Los resultados de las que dependen de "hoy" cambian según el día en que se ejecuten.
+- **Fecha de referencia.** Los datos provistos se describen respecto del 13/10/2026 y su venta más reciente es del 12/10/2026, pero las consultas tienen que calcular la fecha del sistema y no fijarla en el código (Consigna, p. 6). Las dos cosas no pueden ser verdad por mucho tiempo: la consulta 11 ("mes actual") devolvía **cero filas** y la consulta 5 ("últimos 60 días") se vacía sola con el paso de los días. Los registros adicionales de `datos/adicionales/ventas.csv` están fechados en noviembre de 2026 para que las dos tengan datos, pero son **fechas fijas**: ejecutadas en un mes posterior, la 11 vuelve a dar cero y la 5 se va vaciando. Las dos aceptan un parámetro `--hoy` que permite reproducir los ejemplos de este informe en cualquier momento, y las consultas 6 y 12 no tienen el problema porque sus ventanas son largas. La alternativa era fechar los registros adicionales en relación al momento de la carga ("hoy menos 3 días"), pero eso rompe la idempotencia que pide la consigna: dos cargas en días distintos dejarían estados distintos.
 - *Complemento (no está en las clases):* el script Lua lee los hashes `lote:{id}` sin declararlos como claves del script. Funciona en un Redis de un solo nodo, como el nuestro. En Redis Cluster habría que ubicar las claves de una sucursal en el mismo nodo con *hash tags*.
 
 ### 7.2 Alternativas evaluadas

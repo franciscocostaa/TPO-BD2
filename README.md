@@ -68,14 +68,20 @@ python -m farmared.consultas.qNN [argumentos]
 | 1 | Productos activos con su proveedor | `python -m farmared.consultas.q01` |
 | 2 | Ventas pendientes con su farmacéutico | `python -m farmared.consultas.q02` |
 | 3 | Historial de un cliente: ventas y recetas por fecha | `python -m farmared.consultas.q03 C001` |
+| 4 | Clientes con más de una receta, con la cantidad | `python -m farmared.consultas.q04` (opcional: `--minimo 3`) |
+| 5 | Farmacéuticos activos y sus ventas de los últimos 60 días, con los ceros | `python -m farmared.consultas.q05` (opcional: `--hoy 2026-11-14 --dias 30`) |
 | 6 | Recetas prolongadas vigentes con la próxima dispensa vencida | `python -m farmared.consultas.q06` (opcional: `--hoy 2026-10-13`) |
+| 7 | Top 5 de productos más vendidos en unidades | `python -m farmared.consultas.q07` (opcional: `--limite 10`) |
 | 8 | Lotes con menos de 50 unidades, con producto, sucursal y proveedor | `python -m farmared.consultas.q08` (opcional: `--umbral 20 --hoy 2026-10-13`) |
 | 9 | Ventas libres de menos de $5.000, sin anuladas | `python -m farmared.consultas.q09` |
+| 10 | Clientes atendidos en una sucursal, vía el farmacéutico | `python -m farmared.consultas.q10 S001` |
+| 11 | Vista de ingresos por farmacéutico en el mes actual | `python -m farmared.consultas.q11` (opcional: `--hoy 2026-11-14`, `--recrear`) |
+| 12 | Clientes sin ventas registradas en el último año | `python -m farmared.consultas.q12` (opcional: `--hoy 2026-11-14 --dias 365`) |
 | 13 | ABM de clientes | `python -m farmared.consultas.q13 alta --nombre Ana --apellido Paz --dni 40111222 --email ana.paz@example.com --telefono 1140001111 --ciudad "Buenos Aires" --provincia "Buenos Aires" --obra-social OSDE --nro-afiliado OS-500100` |
 | | | `python -m farmared.consultas.q13 modificar C021 --telefono 1140002222 --obra-social "Sin cobertura" --nro-afiliado ""` |
 | | | `python -m farmared.consultas.q13 baja C021` |
 | 14 | Registro de una venta "Completada" (descuenta stock con q15) | `python -m farmared.consultas.q14 --cliente C011 --farmaceutico F001 --item PRD003:20 --item PRD001:35 --medio-pago "Obra social" --receta RC012` |
-| 15 | Descuento de stock FEFO de una venta registrada | `python -m farmared.consultas.q15 V017` (opcional: `--hoy 2026-11-14`) |
+| 15 | Descuento de stock FEFO de una venta registrada | `python -m farmared.consultas.q15 V030` (opcional: `--hoy 2026-11-14`) |
 
 ## Estado
 
@@ -87,9 +93,9 @@ python -m farmared.consultas.qNN [argumentos]
 | Modelo de datos | Sección 2 de [`docs/informe.md`](docs/informe.md), con diagramas |
 | Entorno en Codespaces | Listo |
 | Script de carga | Listo |
-| Registros adicionales (≥ 10 por colección/tabla) | Clientes, sucursales, farmacéuticos, proveedores, productos, lotes y recetas listos; faltan ventas y detalle |
-| Consultas | q01, q02, q03, q06, q08, q09, q13, q14 y q15 listas; faltan q04, q05, q07, q10, q11 y q12 |
-| Informe | [`docs/informe.md`](docs/informe.md): faltan las consultas 4, 5, 7 y 10–12, las ventas adicionales, la carátula y las conclusiones |
+| Registros adicionales (≥ 10 por colección/tabla) | Listos: clientes, sucursales, farmacéuticos, proveedores, productos, lotes, recetas, ventas y detalle |
+| Consultas | Las 15 listas |
+| Informe | [`docs/informe.md`](docs/informe.md): faltan la carátula y las conclusiones |
 
 ## Estructura
 

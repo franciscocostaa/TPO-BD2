@@ -62,16 +62,18 @@ Una reunión. Lo que salga queda escrito en `docs/` y nadie lo cambia sin avisar
 
 ## Asignación
 
-| Integrante | Persona |
-|---|---|
-| 1 — Infraestructura y carga | Fran |
-| 2 — Lecturas | |
-| 3 — Agregaciones y fechas | |
-| 4 — Escritura y consistencia | |
+| Integrante | Persona | Estado |
+|---|---|---|
+| 1 — Infraestructura y carga | Fran | Hecho: entorno, carga, q13 |
+| 2 — Lecturas | Román | Hecho: q01, q02, q03, q06, q08, q09 |
+| 3 — Agregaciones y fechas | Franco | Hecho: q04, q05, q07, q10, q11, q12 |
+| 4 — Escritura y consistencia | Fran | Hecho: q14, q15 |
+
+Con tres personas el rol 4 iba a repartirse entre todos, pero lo tomó Fran junto con el rol 1. Queda pendiente decidir si eso se compensa en el cierre de la fase 2.
 
 ## Para consultar con la cátedra
 
 - La portada dice grupos de **4**, pero los entregables hablan de "los **tres** integrantes".
-- **Consulta 12:** ¿una venta "Pendiente" o "Anulada" cuenta como "venta registrada"?
+- **Consulta 12:** ¿una venta "Pendiente" o "Anulada" cuenta como "venta registrada"? Mientras no haya respuesta, q12 cuenta **todas** las ventas, en cualquier estado. Con los datos cargados la diferencia es visible: si las anuladas no contaran, aparecería también C015, cuya única venta del año está anulada.
 - **Recetas:** el CSV no dice qué productos cubre cada una. q14 valida cliente, estado, dispensas disponibles y, para productos archivados, que la receta sea archivada.
 - **Dispensas:** una venta con varios productos bajo receta, ¿cuenta como una dispensa o como varias? Tomamos una por venta, como los datos provistos.
