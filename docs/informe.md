@@ -1,1747 +1,360 @@
-# FarmaRed — Sistema de gestión de una red de farmacias con persistencia políglota
+# FarmaRed — Persistencia políglota con MongoDB y Redis
 
-**Bases de Datos II — ITBA — 2.º cuatrimestre de 2026**
+**Bases de Datos II — ITBA — 2.º cuatrimestre de 2026 — Trabajo Práctico Obligatorio**
 
-Trabajo Práctico Obligatorio
-
-| Integrante | Legajo | Usuario de GitHub |
-|---|---|---|
-| | | [@franciscocostaa](https://github.com/franciscocostaa) |
-| | | [@romansalerno](https://github.com/romansalerno) |
-| | | |
-| | | |
+| Integrante | Legajo |
+|---|---|
+| | |
+| | |
+| | |
+| | |
 
 **Repositorio:** https://github.com/franciscocostaa/TPO-BD2
 
-## Contenido
-
-1. [Arquitectura políglota](#1-arquitectura-políglota)
-2. [Modelo de datos](#2-modelo-de-datos)
-3. [Entorno](#3-entorno)
-4. [Carga de datos y registros adicionales](#4-carga-de-datos-y-registros-adicionales)
-5. [Consultas y servicios](#5-consultas-y-servicios)
-6. [Consistencia e integridad](#6-consistencia-e-integridad)
-7. [Limitaciones, alternativas y conclusiones](#7-limitaciones-alternativas-y-conclusiones)
-8. [Fuentes](#8-fuentes)
-
 ## 1. Arquitectura políglota
 
-**MongoDB es el sistema de registro y Redis guarda el stock por lote.** La aplicación está escrita en Python.
+**MongoDB es el sistema de registro y Redis guarda el stock por lote**, con Python como lenguaje. Buscamos el mínimo de motores que cubra todos los casos, porque cada motor agregado suma costo de integración y mantenimiento (Clase I, pp. 4–6).
 
 ```mermaid
 flowchart LR
-    A["Aplicación Python<br/>carga y consultas q01–q15"]
-    A -- "pymongo" --> M[("MongoDB 8.0<br/>replica set de un nodo<br/>clientes, sucursales, farmacéuticos,<br/>proveedores, productos, recetas, ventas")]
-    A -- "redis-py + scripts Lua" --> R[("Redis 7.4 con AOF<br/>stock por lote")]
+    A["Python: carga y q01–q15"] -- pymongo --> M[("MongoDB 8.0<br/>replica set")]
+    A -- "redis-py + Lua" --> R[("Redis 7.4<br/>AOF")]
 ```
 
-### 1.1 Qué hay que resolver
-
-La consigna pide al menos dos motores NoSQL de paradigmas distintos, con una justificación técnica para cada entidad o caso de uso (Consigna, pp. 1, 5). También adelanta las características de cada dato:
-
-| Dato | Característica |
-|---|---|
-| Ventas y detalle | Jerárquico (cabecera con ítems variables); consultas por cliente, farmacéutico y fecha; muchas inserciones. |
-| Stock por lote | Actualizaciones frecuentes y concurrentes; nunca negativo; prioridad por vencimiento. |
-| Clientes, recetas, farmacéuticos | ABM con baja lógica; relaciones que se recorren en el historial. |
-| Catálogo y proveedores | Pocos cambios, muchas lecturas. |
-| Reportes | Totales, rankings, conteos por período. |
-
-(Consigna, p. 5)
-
-El punto más delicado es el de las consultas 14 y 15: registrar una venta y descontar su stock con FEFO como una única operación. Si algún ítem no alcanza, no puede quedar nada modificado: ni la venta, ni la receta, ni los lotes (Consigna, p. 7).
-
-### 1.2 Criterio de elección
-
-La persistencia políglota consiste en usar la tecnología adecuada para cada necesidad. La elección pesa modelo, consistencia, durabilidad, escalabilidad, complejidad operativa y capacidades del equipo, y **cada motor agregado suma costo de integración, despliegue y mantenimiento** (Clase I, pp. 4–6).
-
-Por eso buscamos el **mínimo de motores (dos)** que cubra bien todos los casos, con un rol para cada uno que el otro no pueda cumplir.
-
-### 1.3 Motores evaluados
-
-| Motor | A favor para FarmaRed | En contra para FarmaRed |
+| Dato | Motor | Por qué |
 |---|---|---|
-| **MongoDB** | Embeber los ítems en la venta permite leerla y escribirla en una sola operación atómica (Clase 13, pp. 3–8). `$lookup` (Clase 13, pp. 21–24), pipelines de agregación y vistas (Clase 12, pp. 50–52). | La atomicidad vista en clase es por documento, y venta y receta son dos documentos (Clase 13, p. 5). |
-| **Redis** | Los scripts Lua se ejecutan de forma atómica, sin atender a otro cliente en el medio (Clase 17, p. 31). Los sorted sets ordenan por score (Clase 18, pp. 14–15): con el vencimiento como score, FEFO sale solo. Es muy rápido (Clase 18, pp. 34–35). | La clase lo desaconseja para relaciones y para transacciones de varias operaciones (Clase 17, pp. 6–7). `MULTI` no tiene rollback (Clase 17, p. 12; Clase 18, p. 7). Vive en memoria, así que hay que activar AOF (Clase 17, pp. 17–24). |
-| **Neo4j** | ACID (Clase 16, pp. 15–16). Recorre relaciones sin joins (Clase 16, p. 39). `MERGE` y restricciones de unicidad (Anexo Neo4j, pp. 2–5). | Replica el grafo completo sin fragmentarlo, lo que limita el tamaño (Clase 16, pp. 39–40). Mayor curva de modelado. |
-| **Cassandra** | Escrituras masivas, una tabla por consulta (Clase 15, pp. 16–19). | Sin joins ni subconsultas (Clase 15, pp. 13, 19). La clase la desaconseja para sistemas que requieren ACID (Clase 15, p. 6). Pesada para Codespaces. |
-| **DynamoDB** | Clave de partición y de ordenamiento, más LSI y GSI para consultar por cliente y fecha (Clase 20, pp. 6, 17–19). | Consistencia solo a nivel de ítem, sin operaciones atómicas entre ítems (Clase 20, p. 6). Sin agregaciones; modelado y capacidad complejos (Clase 20, pp. 32–33). |
+| Ventas con sus ítems | MongoDB | Jerárquicas y de alto volumen. Con los ítems embebidos, cada venta se lee y se escribe en una operación atómica (Clase 13, pp. 3–8). Los reportes son pipelines de agregación y la q11 pide una vista (Clase 12, pp. 50–52). |
+| Clientes, recetas, farmacéuticos, sucursales, catálogo | MongoDB | ABM con baja lógica y relaciones que se recorren con referencias y `$lookup` (Clase 13, pp. 21–24). Venta y receta se actualizan juntas en una transacción. |
+| Stock por lote | Redis | El dato con más escrituras concurrentes, que nunca puede quedar negativo. Un script Lua verifica y descuenta de forma atómica (Clase 17, p. 31), y un sorted set con el vencimiento como score da el orden FEFO (Clase 18, pp. 14–15). |
 
-Descartamos Cassandra y DynamoDB porque fallan justo en lo que más pesa: la consistencia de 14 + 15 y los reportes. La alternativa más fuerte, Neo4j, se analiza en [7.2](#72-alternativas-evaluadas).
+La clase desaconseja Redis para transacciones de varias operaciones (Clase 17, pp. 6–7). No se las pedimos: la transacción entre entidades la hace MongoDB, y a Redis solo le pedimos una operación atómica sobre el stock.
 
-### 1.4 Qué guarda cada motor y por qué
-
-| Dato | Motor | Justificación |
-|---|---|---|
-| Ventas con sus ítems | MongoDB | Son jerárquicas, crecen mucho y se consultan y agregan por cliente, farmacéutico y fecha. Con los ítems embebidos, cada venta se lee y se escribe en una operación atómica (Clase 13, pp. 3–8). Los reportes (4, 5, 7 y 11) son pipelines de agregación, y la consulta 11 pide una vista, que MongoDB tiene (Clase 12, pp. 50–52). |
-| Clientes, recetas, farmacéuticos, sucursales | MongoDB | Tienen ABM con baja lógica y relaciones que se recorren en el historial (consultas 3 y 10). Se resuelven con referencias y `$lookup` (Clase 13, pp. 21–24). Venta y receta se actualizan juntas en una transacción (ver [6.3](#63-consultas-14-y-15-todo-o-nada-entre-dos-motores)). |
-| Catálogo y proveedores | MongoDB | Datos de referencia poco volátiles y de lectura frecuente, que las consultas combinan con ventas y lotes. |
-| Stock por lote | Redis | Es el dato con más escrituras concurrentes y con una invariante dura: nunca negativo y FEFO. Un script Lua evalúa todos los ítems y descuenta solo si alcanzan todos, en una operación atómica (Clase 17, p. 31). El sorted set por vencimiento resuelve FEFO sin ordenar en la aplicación (Clase 18, pp. 14–15). |
-
-La clase advierte que las bases clave-valor no convienen para transacciones de varias operaciones (Clase 17, pp. 6–7). A Redis no le pedimos una transacción entre entidades, sino **una única operación atómica sobre el stock**, que es lo que garantiza un script Lua. La transacción entre entidades (venta y receta) la hace MongoDB.
-
-**Reparto de las consultas:**
-
-| Motor | Consultas |
-|---|---|
-| Solo MongoDB | 1, 2, 3, 4, 5, 6, 7, 9, 10, 11 (vista), 12, 13 |
-| Redis + MongoDB | 8 (lotes de Redis con producto, sucursal y proveedor de MongoDB), 14 y 15 |
-
-### 1.5 Stack
-
-- **Python 3.12**, el lenguaje que usa la cátedra en los ejemplos (`redis-py` con pipelines en Clase 18, pp. 18–19; `boto3` en Clase 20, pp. 26–27). Librerías: `pymongo` y `redis`.
-- **docker-compose + devcontainer** con MongoDB como replica set de un nodo y Redis con AOF (ver [3](#3-entorno)).
-- Las consultas que dependen de la fecha toman la fecha del sistema, como exige la consigna (p. 6).
+**Descartados:**
+- **Cassandra:** sin joins y desaconsejada para ACID (Clase 15, pp. 6, 13).
+- **DynamoDB:** atomicidad solo por ítem y sin agregaciones (Clase 20, pp. 6, 32–33).
+- **Neo4j:** ver [7.2](#72-alternativas-evaluadas).
 
 ## 2. Modelo de datos
 
-### 2.1 Convenciones
+**Convenciones:** el `_id` es el id del CSV y los registros propios siguen la serie. Las fechas son `Date` a las 00:00 UTC y los importes, enteros. "Hoy" es la fecha del sistema en hora argentina, con un parámetro `hoy` opcional para las pruebas. Un lote está vencido si `vencimiento < hoy`. Las bajas son lógicas (`activo: false`).
 
-| Tema | Decisión |
-|---|---|
-| Identificadores | `_id` = id del CSV (`"C001"`, `"V001"`…). Las referencias usan los nombres de campo del CSV (`id_cliente`, `id_producto`…). Los registros propios siguen la misma serie (`C009`, `V017`…). |
-| Nombres de campo | Los del CSV, sin cambios. |
-| Booleanos | `True`/`False` del CSV → `bool`. |
-| Fechas | `AAAA-MM-DD` → `Date` de MongoDB a las 00:00 UTC de ese día. Solo importa el día: para comparar con "hoy", la fecha de hoy se convierte de la misma forma. |
-| Importes | Enteros en ARS. |
-| Vacíos | `null` explícito: todos los documentos de una colección tienen los mismos campos. |
-| "Hoy" | Fecha del sistema en hora argentina (el contenedor corre con `TZ=America/Argentina/Buenos_Aires`). Cada consulta que la usa acepta un parámetro opcional `hoy` para que las pruebas den siempre el mismo resultado. |
-| Lote vencido | `vencimiento < hoy`: un lote se puede dispensar hasta el día de su vencimiento inclusive. |
-| Bajas | Lógicas: `activo: false`. Nunca se borra un documento ni un lote. |
-
-### 2.2 MongoDB
-
-Base `farmared`: siete colecciones de datos y una de contadores. No hay colección de lotes: el stock vive solo en Redis.
+### 2.1 MongoDB
 
 ```mermaid
 erDiagram
-    PROVEEDORES ||--o{ PRODUCTOS : "id_proveedor"
-    SUCURSALES ||--o{ FARMACEUTICOS : "id_sucursal"
-    CLIENTES ||--o{ RECETAS : "id_cliente"
-    CLIENTES ||--o{ VENTAS : "id_cliente"
-    FARMACEUTICOS ||--o{ VENTAS : "id_farmaceutico"
-    SUCURSALES ||--o{ VENTAS : "id_sucursal"
-    RECETAS |o--o{ VENTAS : "id_receta"
-    VENTAS ||--|{ ITEMS : "embebidos"
-    PRODUCTOS ||--o{ ITEMS : "id_producto"
-
-    CLIENTES {
-        string _id PK
-        string dni UK
-        string obra_social
-        string nro_afiliado
-        bool activo
-    }
-    SUCURSALES {
-        string _id PK
-        string tipo "Farmacia o Drogueria"
-        bool activo
-    }
-    FARMACEUTICOS {
-        string _id PK
-        string matricula UK
-        string id_sucursal FK
-        bool activo
-    }
-    PROVEEDORES {
-        string _id PK
-        string cuit
-        bool activo
-    }
-    PRODUCTOS {
-        string _id PK
-        string condicion_venta
-        int precio_unit
-        string id_proveedor FK
-        bool activo
-    }
-    RECETAS {
-        string _id PK
-        string id_cliente FK
-        string tipo
-        int dispensas_autorizadas
-        int dispensas_realizadas
-        date proxima_dispensa
-        string estado
-    }
-    VENTAS {
-        string _id PK
-        string id_cliente FK
-        string id_farmaceutico FK
-        string id_sucursal FK
-        string id_receta FK
-        date fecha
-        string tipo
-        int total
-        string estado
-    }
-    ITEMS {
-        string id_detalle UK
-        string id_producto FK
-        int cantidad
-        int precio_unit
-    }
+    PROVEEDORES ||--o{ PRODUCTOS : id_proveedor
+    SUCURSALES ||--o{ FARMACEUTICOS : id_sucursal
+    CLIENTES ||--o{ RECETAS : id_cliente
+    CLIENTES ||--o{ VENTAS : id_cliente
+    FARMACEUTICOS ||--o{ VENTAS : id_farmaceutico
+    RECETAS |o--o{ VENTAS : id_receta
+    VENTAS ||--|{ ITEMS : embebidos
+    PRODUCTOS ||--o{ ITEMS : id_producto
 ```
 
-Cada flecha es una referencia por id, salvo `ITEMS`, que va embebido en la venta.
-
-#### `clientes`
-
-```js
-{ _id: "C001", nombre: "Lucía", apellido: "Fernández", dni: "31245678",
-  email: "lucia.f@gmail.com", telefono: "1145112233",
-  ciudad: "Buenos Aires", provincia: "Buenos Aires",
-  obra_social: "OSDE", nro_afiliado: "OS-310045", activo: true }
-```
-
-- Índice **único** en `dni` (q13 valida DNI único).
-- Consultas: 3, 4, 6, 10, 12, 13, 14.
-
-#### `sucursales`
-
-```js
-{ _id: "S001", nombre: "Farmacia Palermo", tipo: "Farmacia",
-  direccion: "Av. Santa Fe 3350", ciudad: "Buenos Aires", provincia: "Buenos Aires",
-  telefono: "1148001001", activo: true }
-```
-
-- Consultas: 2, 8, 10, 14.
-
-#### `farmaceuticos`
-
-```js
-{ _id: "F001", nombre: "Mariana", apellido: "Quiroga", matricula: "MN-18041",
-  cargo: "Director Técnico", id_sucursal: "S001", activo: true }
-```
-
-- Colección propia con referencia a la sucursal. Se consulta por sí sola (q05, q11), así que no conviene embeberla en la sucursal.
-- Índice **único** en `matricula`; índice en `id_sucursal` (q10).
-- Consultas: 2, 5, 10, 11, 14.
-
-#### `proveedores`
-
-```js
-{ _id: "PRV001", razon_social: "Laboratorios Andinos S.A.", cuit: "30-71234567-1",
-  tipo: "Laboratorio", ciudad: "Buenos Aires", provincia: "Buenos Aires",
-  telefono: "1143001100", activo: true }
-```
-
-- Consultas: 1, 8.
-
-#### `productos`
-
-```js
-{ _id: "PRD001", nombre: "Paracetamol 500mg x30", principio_activo: "Paracetamol",
-  categoria: "Analgésico", presentacion: "Comprimidos x30",
-  condicion_venta: "Venta libre", precio_unit: 2800,
-  id_proveedor: "PRV001", activo: true }
-```
-
-- Referencia al proveedor. Un proveedor tiene muchos productos y así no se repiten sus datos (Clase 13, caso editor–libros).
-- Consultas: 1, 7, 8, 14.
-
-#### `recetas`
-
-```js
-{ _id: "RC002", id_cliente: "C003", medico: "Dra. Silvia Montenegro",
-  matricula_medico: "MP-39877", fecha_emision: ISODate("2026-07-15"),
-  tipo: "Tratamiento prolongado", dispensas_autorizadas: 3, dispensas_realizadas: 2,
-  proxima_dispensa: ISODate("2026-09-15"), estado: "Vigente" }
-```
-
-- Colección propia que referencia al cliente: un cliente acumula recetas sin límite, y referenciar desde el hijo evita un arreglo que crece (Clase 13, pp. 16–20).
-- Índices: `id_cliente`; `{ tipo, estado, proxima_dispensa }` para q06.
-- Consultas: 3, 4, 6, 14.
-
-#### `ventas`
+| Colección | Modelo | Índices |
+|---|---|---|
+| `ventas` | Ítems **embebidos**: siempre se leen y escriben con la venta. `id_sucursal` se copia del farmacéutico. | `{id_cliente, fecha}`, `{id_farmaceutico, fecha}`, `fecha`, `estado`, único en `items.id_detalle` |
+| `recetas` | Colección propia que **referencia** al cliente, para no tener un arreglo que crece sin límite (Clase 13, pp. 16–20). | `id_cliente`, `{tipo, estado, proxima_dispensa}` |
+| `productos` | Referencia al proveedor, que abastece muchos productos. | — |
+| `clientes`, `farmaceuticos`, `sucursales`, `proveedores` | Documentos con baja lógica. | Único en `clientes.dni` y en `farmaceuticos.matricula` |
+| `contadores` | Último id usado de ventas y de ítems (q14). | — |
 
 ```js
 { _id: "V006", id_cliente: "C006", id_farmaceutico: "F002", id_sucursal: "S001",
   id_receta: "RC003", fecha: ISODate("2026-08-01"), tipo: "Con receta",
   medio_pago: "Obra social", total: 22100, estado: "Completada",
-  items: [
-    { id_detalle: "D007", id_producto: "PRD005", cantidad: 3, precio_unit: 5400 },
-    { id_detalle: "D008", id_producto: "PRD009", cantidad: 1, precio_unit: 5900 } ] }
+  items: [ { id_detalle: "D007", id_producto: "PRD005", cantidad: 3, precio_unit: 5400 },
+           { id_detalle: "D008", id_producto: "PRD009", cantidad: 1, precio_unit: 5900 } ] }
 ```
 
-- `items` embebidos: es una relación "contiene" y siempre se leen y escriben con la venta. Insertar una venta con sus ítems es una sola operación atómica, y un ítem no puede existir sin su venta (Clase 13, pp. 3–8).
-- `precio_unit` del ítem es el precio al momento de la venta y puede diferir del de lista.
-- `id_sucursal` es la sucursal donde ocurrió la venta, copiada del farmacéutico al registrarla. q15 la usa para saber de qué lotes descontar. La q10 sigue pasando por el farmacéutico, como pide la consigna.
-- Índices: `{ id_cliente, fecha }`, `{ id_farmaceutico, fecha }`, `{ fecha }`, `{ estado }` y **único** en `items.id_detalle`.
-- Consultas: 2, 3, 5, 7, 9, 10, 11, 12, 14, 15.
+### 2.2 Redis
 
-#### `contadores`
-
-```js
-{ _id: "ventas", ultimo: 16 }
-{ _id: "detalle_ventas", ultimo: 22 }
-```
-
-- Último número usado de cada serie de ids. La carga lo calcula de los CSV; q14 lo incrementa con un `$inc` atómico (ver [6.5](#65-concurrencia)).
-
-#### Vista
-
-- `ingresos_farmaceutico_mes` (q11): pipeline sobre `ventas` que filtra las "Completada" del mes actual y suma `total` por farmacéutico. *Pendiente: la define el integrante 3.*
-
-### 2.3 Redis
-
-Base 0. Cada lote es un hash, y dos sorted sets lo indexan: uno por vencimiento, para FEFO, y otro por unidades, para el reporte de stock bajo. Las otras dos claves registran qué ventas ya descontaron stock y de qué lotes.
-
-```mermaid
-flowchart LR
-    S["stock:{sucursal}:{producto}<br/>Sorted set<br/>miembro = id_lote · score = vencimiento AAAAMMDD"]
-    U["lotes:unidades<br/>Sorted set<br/>miembro = id_lote · score = unidades"]
-    L["lote:{id_lote}<br/>Hash<br/>id_producto, id_sucursal, nro_lote,<br/>unidades, vencimiento"]
-    D["descuento:{id_venta}<br/>Hash<br/>id_lote → unidades descontadas"]
-    V["ventas:descontadas<br/>Set de id_venta"]
-    S --> L
-    U --> L
-    D --> L
-    V -.->|mismo id_venta| D
-```
-
-| Clave | Tipo | Contenido | Uso |
-|---|---|---|---|
-| `lote:{id_lote}` | Hash | `id_producto`, `id_sucursal`, `nro_lote`, `unidades`, `vencimiento` (ISO) | Datos del lote |
-| `stock:{id_sucursal}:{id_producto}` | Sorted set | miembro `id_lote`, score = vencimiento como `AAAAMMDD` | FEFO (q15) |
-| `lotes:unidades` | Sorted set | miembro `id_lote`, score = unidades | Stock bajo (q08) |
-| `ventas:descontadas` | Set | ventas cuyo stock ya se descontó | Evitar descontar dos veces (q15) |
-| `descuento:{id_venta}` | Hash | `id_lote` → unidades descontadas de ese lote para la venta | Compensación (q14) |
-
-```text
-HSET lote:L005 id_producto PRD003 id_sucursal S001 nro_lote L-2506A unidades 40 vencimiento 2026-11-30
-ZADD stock:S001:PRD003 20261120 L033 20261130 L005 20270630 L015
-ZADD lotes:unidades 40 L005
-
-# Lotes dispensables de PRD003 en S001, del que vence antes (hoy = 2026-11-14):
-ZRANGEBYSCORE stock:S001:PRD003 20261114 +inf
-
-# q08: lotes con menos de 50 unidades
-ZRANGEBYSCORE lotes:unidades -inf (50
-```
-
-**Invariantes:**
-- Las unidades solo cambian dentro de los scripts Lua `descontar` y `reponer` (`farmared/stock.py`), que actualizan el hash del lote y `lotes:unidades` en la misma operación atómica. La carga escribe todo en un `MULTI`.
-- Las unidades nunca quedan negativas: `descontar` solo escribe si alcanzan todos los productos.
-- Los lotes con 0 unidades no se borran (baja lógica): quedan en los sorted sets y el script los saltea.
-- Una venta se descuenta una sola vez: `descontar` la agrega a `ventas:descontadas` y guarda `descuento:{id_venta}` en la misma operación.
-
-### 2.4 Relaciones entre motores
-
-| Desde (Redis) | Hacia (MongoDB) | Cómo se resuelve |
+| Clave | Tipo | Contenido |
 |---|---|---|
-| `lote:{id}.id_producto` | `productos._id` | En la aplicación: q08 lee los lotes en Redis y trae los productos con `$in`. |
-| `lote:{id}.id_sucursal`, clave `stock:{sucursal}:…` | `sucursales._id` | En la aplicación: q08 trae las sucursales; q15 arma la clave con la `id_sucursal` de la venta. |
-| `ventas:descontadas`, `descuento:{id_venta}` | `ventas._id` | q15 parte de la venta de MongoDB y registra su id en Redis. |
+| `lote:{id_lote}` | Hash | `id_producto`, `id_sucursal`, `nro_lote`, `unidades`, `vencimiento` |
+| `stock:{sucursal}:{producto}` | Sorted set | Lotes con score = vencimiento `AAAAMMDD`. Da el orden FEFO (q15). |
+| `lotes:unidades` | Sorted set | Lotes con score = unidades. Sirve para el stock bajo (q08). |
+| `ventas:descontadas` | Set | Ventas cuyo stock ya se descontó. |
+| `descuento:{id_venta}` | Hash | `id_lote` → unidades descontadas a la venta, para compensar. |
 
-La carga valida que cada lote apunte a un producto y una sucursal existentes (ver [6.1](#61-integridad-referencial)).
+Las unidades solo cambian dentro de dos scripts Lua, `descontar` y `reponer`. Cada uno actualiza el hash del lote y `lotes:unidades` en la misma operación atómica. Los lotes con 0 unidades no se borran. Las referencias de Redis a MongoDB (producto y sucursal del lote, id de la venta) se resuelven en la aplicación.
 
 ## 3. Entorno
 
-El entorno se levanta completo en GitHub Codespaces a partir de `.devcontainer/` y `docker-compose.yml`, sin pasos manuales: al crear el Codespace quedan los motores corriendo, las dependencias instaladas y las consolas disponibles. El mismo devcontainer funciona en VS Code local con la extensión Dev Containers.
+`docker-compose.yml` y `.devcontainer/` levantan todo en Codespaces sin pasos manuales:
 
-Cada motor corre en su propio contenedor, a partir de una imagen oficial con la versión fijada. Así el entorno es el mismo en cualquier máquina (Clase I, pp. 8–9).
+| Servicio | Configuración | Por qué |
+|---|---|---|
+| `app` | Python 3.12 con `mongosh` y `redis-cli`, y `TZ=America/Argentina/Buenos_Aires`. | Ahí se trabaja. La zona horaria define "hoy". |
+| `mongo` | `mongo:8.0`, replica set de un nodo que inicia el propio healthcheck. | Las transacciones de varios documentos requieren replica set (*complemento: no está en las clases*). |
+| `redis` | `redis:7.4` con AOF y fsync por segundo. | Se pierde a lo sumo un segundo ante una caída (Clase 17, pp. 17–21). |
 
-| Servicio | Imagen | Configuración | Por qué |
-|---|---|---|---|
-| `app` | Python 3.12 (imagen de devcontainers) + `mongosh` + `redis-cli` | Monta el repositorio en `/workspaces/TPO-BD2`. Define `MONGO_URI`, `MONGO_DB`, `REDIS_URL` y `TZ=America/Argentina/Buenos_Aires`. Arranca cuando `mongo` y `redis` están sanos. | Es donde se trabaja y se ejecutan la carga y las consultas. La zona horaria hace que "hoy" sea el día argentino. |
-| `mongo` | `mongo:8.0` | Replica set `rs0` de un nodo. | Las transacciones de varios documentos, que usan la carga y q14, requieren un replica set. |
-| `redis` | `redis:7.4` | AOF con `appendfsync everysec`, más los snapshots RDB por defecto. | El stock vive solo en Redis: sin persistencia, un reinicio lo perdería. AOF + RDB es la combinación que aconseja la clase, y con fsync por segundo se pierde a lo sumo un segundo de escrituras (Clase 17, pp. 17–21). |
-
-*Complemento (no está en las clases): `docker-compose`, el devcontainer, los volúmenes con nombre y el replica set de un nodo. Ver el [manual de transacciones de MongoDB](https://www.mongodb.com/docs/manual/core/transactions/).*
-
-**Replica set sin pasos manuales.** Un replica set nuevo hay que iniciarlo una vez con `rs.initiate`. Lo hace el healthcheck del servicio `mongo`: si `rs.status()` falla, el nodo todavía no es parte de un replica set, así que lo inicia. El servicio recién queda sano cuando el nodo es primario y acepta escrituras, y `app` espera esa condición para arrancar. En los reinicios, el replica set ya existe y el paso no hace nada.
-
-**Persistencia.** Los datos se guardan en tres volúmenes con nombre (`mongo-data`, `mongo-config`, `redis-data`), así que sobreviven a reinicios y a reconstrucciones del contenedor. No se publican puertos: `app` se conecta a `mongo` y `redis` por la red interna de compose.
-
-**Verificación.** `python -m farmared.verificar` comprueba lo que necesitan la carga y las consultas:
-
-```text
-✔ MongoDB: conexión: responde
-✔ MongoDB: replica set: rs0, primario mongo:27017
-✔ MongoDB: transacciones: abort deshace el insert
-✔ Redis: conexión: responde
-✔ Redis: persistencia AOF: appendonly = yes
-✔ Redis: scripts Lua: EVAL ejecuta scripts
-```
-
-La prueba de transacciones inserta un documento dentro de una transacción, la aborta y comprueba que no quedó. La de Lua ejecuta un `EVAL` sobre una clave temporal.
+`python -m farmared.verificar` comprueba la conexión, el replica set, las transacciones, el AOF y los scripts Lua.
 
 ## 4. Carga de datos y registros adicionales
 
-```bash
-python -m farmared.carga
-```
+`python -m farmared.carga` lee los CSV de `datos/provistos/` y `datos/adicionales/` y hace cuatro cosas:
 
-El script (`farmared/carga.py`) parte de los CSV de la cátedra (`datos/provistos/`) y de los registros propios del equipo (`datos/adicionales/`). Los adicionales tienen los mismos nombres de archivo y encabezados, así que la carga concatena las filas de ambos orígenes y procesa todo igual.
+1. **Valida** los datos combinados (ver [6.1](#61-integridad-referencial)). Si hay errores, los informa todos y no toca ninguna base.
+2. **Transforma** los datos: embebe los ítems en su venta, copia la sucursal del farmacéutico y calcula los contadores de ids.
+3. **Escribe en MongoDB** en una única transacción: vacía cada colección con `delete_many` y la llena con `insert_many`.
+4. **Escribe en Redis** en un único `MULTI`: los lotes y la marca de descontadas de las ventas "Completada" de los CSV, cuyo stock ya está reflejado en los lotes.
 
-### 4.1 Pasos
+Es **idempotente**: cada ejecución deja exactamente el estado de los CSV y descarta lo que hayan hecho los servicios de escritura. Lo verificamos con un hash del contenido de ambas bases después de dos cargas seguidas.
 
-1. **Lectura y conversión**, según las convenciones de la consigna:
-   - Campo vacío → `null`.
-   - `True`/`False` → booleano.
-   - Fechas `AAAA-MM-DD` → `Date` a las 00:00 UTC.
-   - Importes, unidades y dispensas → enteros.
-   - El resto queda como texto, incluidos DNI y teléfonos, para no perder ceros a la izquierda.
-2. **Validación** de los datos combinados, antes de escribir (ver [6.1](#61-integridad-referencial)). Si hay errores, los lista todos y termina sin tocar ninguna base.
-3. **Transformación** al modelo de la [sección 2](#2-modelo-de-datos):
-   - El id de cada CSV pasa a ser el `_id`.
-   - Las filas de `detalle_ventas` se agrupan como `items` embebidos en su venta.
-   - Cada venta recibe `id_sucursal`, la sucursal de su farmacéutico.
-   - `contadores` guarda el último id de ventas y de ítems, para que q14 siga la serie.
-   - `stock_lotes` va a Redis.
-4. **MongoDB.** Crea los índices (únicos en `clientes.dni`, `farmaceuticos.matricula` y `ventas.items.id_detalle`, y los que usan las consultas). Después, en **una sola transacción**, vacía cada colección con `delete_many` y la vuelve a llenar con `insert_many`.
-5. **Redis.** En **un solo `MULTI`**, borra las claves anteriores (`lote:*`, `stock:*`, `lotes:unidades`, `ventas:descontadas`, `descuento:*`) y escribe cada lote en sus tres claves. Además marca como descontadas las ventas "Completada" de los CSV: los lotes ya reflejan su stock, así que q15 no las tiene que descontar de nuevo.
+**Registros adicionales** (al menos 10 por archivo), elegidos para ejercitar las consultas:
 
-Salida con los datos actuales:
-
-```text
-✔ clientes: 8 provistos + 12 adicionales → MongoDB clientes
-✔ sucursales: 5 provistos + 10 adicionales → MongoDB sucursales
-✔ farmaceuticos: 7 provistos + 11 adicionales → MongoDB farmaceuticos
-✔ proveedores: 5 provistos + 10 adicionales → MongoDB proveedores
-✔ productos: 13 provistos + 12 adicionales → MongoDB productos
-✔ recetas: 9 provistos + 10 adicionales → MongoDB recetas
-✔ ventas: 16 provistos + 0 adicionales → MongoDB ventas
-✔ detalle_ventas: 22 provistos + 0 adicionales → MongoDB ventas.items
-✔ stock_lotes: 18 provistos + 16 adicionales → Redis
-```
-
-### 4.2 Reproducible e idempotente
-
-Cada ejecución deja exactamente el estado de los CSV, sin importar el estado anterior. Descarta las modificaciones de los servicios de escritura y también los documentos que agregaron, por ejemplo un cliente dado de alta con q13 o una venta registrada con q14. Por eso no se usa un upsert por documento, que dejaría esos documentos agregados.
-
-- En MongoDB, la transacción hace que el reemplazo sea todo o nada: si algo falla a mitad de camino, las colecciones quedan como estaban. Las vistas (q11) no se tocan.
-- En Redis, `MULTI` aplica el borrado y la escritura juntos, sin que otro cliente vea el stock vacío en el medio.
-
-Lo comprobamos calculando un hash de todo el contenido de ambas bases después de dos cargas seguidas, con altas, modificaciones y bajas de q13 entre medio: el hash es idéntico.
-
-### 4.3 Registros adicionales
-
-La consigna pide al menos 10 registros propios por colección, elegidos para ejercitar las consultas: fechas recientes, stock bajo, lotes próximos a vencer o vencidos, recetas vencidas, clientes sin compras, ventas pendientes y casos borde (Consigna, p. 6). Cada integrante agregó los casos que ponen a prueba sus consultas.
-
-#### Clientes (C009–C020, 12 registros)
-
-| Caso | Registros | Ejercita |
+| Archivo | Ids | Casos que cubren |
 |---|---|---|
-| Sin ninguna venta | Todos, salvo los que usen las ventas adicionales | q12 (clientes sin ventas en el último año), q10 |
-| Dados de baja | C016, C020 | q13 (baja ya hecha), q14 (rechazo por cliente inactivo) |
-| Sin cobertura, sin número de afiliado | C012, C015 | q13 (regla de cobertura) |
-| DNI de 7 dígitos | C011 | q13 (el DNI se guarda como texto) |
-| Todas las obras sociales y las tres provincias de la red | Todos | q03, q04, q06 (datos del cliente) |
-
-#### Sucursales (S006–S015, 10 registros)
-
-| Caso | Registros | Ejercita |
-|---|---|---|
-| Farmacias nuevas en Buenos Aires, Santa Fe y Córdoba | S006–S013, S015 | q10 con una sucursal sin ventas (resultado vacío) |
-| Farmacia dada de baja | S014 | q14 (su único farmacéutico, F016, también está dado de baja: rechazo) |
-
-No agregamos droguerías: la consigna describe una única droguería propia (S005), y el rechazo de una venta en droguería ya se puede probar con su farmacéutico F007.
-
-#### Farmacéuticos (F008–F018, 11 registros)
-
-| Caso | Registros | Ejercita |
-|---|---|---|
-| Director técnico de cada farmacia nueva | F008–F015, F018 | q05 (activos con cero ventas en los últimos 60 días) |
-| Segundo farmacéutico de una sucursal existente | F017 (S003) | q05, q10 |
-| Dado de baja, en una sucursal cerrada | F016 (S014) | q05 (no aparece), q14 (rechazo por farmacéutico inactivo) |
-
-#### Proveedores (PRV006–PRV015, 10 registros)
-
-| Caso | Registros | Ejercita |
-|---|---|---|
-| Laboratorios y droguerías de distintas provincias, con CUIT de dígito verificador válido | Todos | q01, q08 |
-| Dados de baja | PRV013, PRV015 | q01 y q08 con un proveedor inactivo, cuando un producto adicional lo referencia |
-
-#### Productos (PRD014–PRD025, 12 registros)
-
-| Caso | Registros | Ejercita |
-|---|---|---|
-| Las tres condiciones de venta: libre, bajo receta y bajo receta archivada | Todos | q01, q14 (exigir receta o no) |
-| Activo con proveedor dado de baja | PRD023 (PRV013) | q01 (aparece, con `proveedor.activo: false`), q08 |
-| Discontinuados | PRD024 (de PRV015, también dado de baja), PRD025 | q01 (no aparecen), q14 (rechazo por producto inactivo) |
-| Productos de los proveedores adicionales | PRD014–PRD023 | q01, q08 (proveedor de cada lote) |
-
-#### Lotes (L019–L034, 16 registros)
-
-Las fechas "por vencer" y "vencido" se eligieron respecto de noviembre de 2026.
-
-| Caso | Registros | Ejercita |
-|---|---|---|
-| **FEFO con un lote vencido en el medio:** PRD001 en S001 tiene L019 (vencido, 2026-08-31), L020 (2026-12-20) y L001 (2027-08-31) | L019, L020 | q15: tiene que saltear L019 y descontar primero de L020 |
-| **FEFO con tres lotes vigentes:** PRD003 en S001 tiene L033 (2026-11-20), L005 (2026-11-30) y L015 (2027-06-30) | L033 | q15: una venta grande consume L033, después L005 y después L015 |
-| **Solo stock vencido:** PRD017 en S001 tiene únicamente L022, vencido | L022 | q15: rechazo por falta de stock vigente, aunque haya unidades |
-| Lote agotado, que no se borra | L021 (0 unidades) | q08 (aparece con 0), q15 (se saltea) |
-| Stock bajo y por vencer | L026 (10 u., 2026-11-25), L028 (8 u., 2026-12-05) | q08 |
-| Bordes del umbral de q08 | L030 (49 u., entra), L031 (50 u., no entra) | q08 (`< 50` estricto) |
-| Vencido de un producto discontinuado | L034 | q08 (`vencido: true`) |
-| Stock central en la droguería | L032 (1800 u.) | q15 (la droguería no vende: sus lotes no se tocan) |
-| Lotes en farmacias adicionales | L027 (S006), L028 (S008), L029 (S007), L030 (S012), L031 (S010) | q08 |
-
-#### Recetas (RC010–RC019, 10 registros)
-
-Todas sin dispensas realizadas: así no hace falta inventar ventas históricas que las respalden, y `dispensas_realizadas` sigue coincidiendo con las ventas "Completada" de cada receta.
-
-| Caso | Registros | Ejercita |
-|---|---|---|
-| Simple vigente | RC010 (C009), RC014 (C014), RC018 (C012, sin cobertura) | q14 (venta exitosa; receta de otro cliente; obra social sin cobertura) |
-| Archivada vigente | RC011 (C010) | q14 + q15 (PRD017 solo tiene un lote vencido en S001: rechazo por stock) |
-| Tratamiento prolongado sin dispensas | RC012 (C011, 3 autorizadas), RC015 (C017, 6 autorizadas) | q14 (la primera dispensa fija la próxima a 30 días) |
-| Vencidas | RC013 (C013, simple), RC017 (C019, archivada) | q14 (rechazo por receta no vigente), q03 |
-| Simple vigente para un producto archivado | RC016 (C018) | q14 (rechazo: el producto exige receta archivada) |
-| Vigente de un cliente dado de baja | RC019 (C016) | q14 (rechazo por cliente inactivo) |
-
-#### Ventas
-
-*Pendiente: las agrega el integrante 3 (ver `docs/division.md`).*
+| Clientes | C009–C020 | Sin compras (q12), dados de baja, sin cobertura, DNI de 7 dígitos |
+| Sucursales | S006–S015 | Farmacias sin ventas (q10), una dada de baja |
+| Farmacéuticos | F008–F018 | Activos sin ventas (q05), uno dado de baja |
+| Proveedores | PRV006–PRV015 | Dos dados de baja (q01) |
+| Productos | PRD014–PRD025 | Las tres condiciones de venta, discontinuados, proveedor dado de baja |
+| Lotes | L019–L034 | FEFO con un lote vencido en el medio (PRD001 en S001), un producto con solo stock vencido (PRD017), un lote en 0, los bordes de 49 y 50 unidades (q08) |
+| Recetas | RC010–RC019 | Vigentes de cada tipo, vencidas, una simple para un producto archivado y una de un cliente dado de baja (q14) |
+| Ventas | — | *Pendiente (integrante 3)* |
 
 ## 5. Consultas y servicios
 
-Cada consulta es un módulo de `farmared/consultas/` (`q01.py` a `q15.py`) con una función `ejecutar(...)` y un docstring con propósito, parámetros, retorno y motor. Los parámetros se reciben como argumentos, y las que dependen de la fecha toman la del sistema, con un parámetro `hoy` opcional para las pruebas. Cada módulo también se ejecuta desde la terminal del contenedor `app`, después de la carga:
-
-```bash
-python -m farmared.consultas.qNN [argumentos]
-```
-
-| # | Tipo | Motor | Relación resuelta por |
-|---|---|---|---|
-| 1 | Lectura | MongoDB | `$lookup` producto → proveedor |
-| 2 | Lectura | MongoDB | `$lookup` venta → farmacéutico → sucursal |
-| 3 | Lectura | MongoDB | `$unionWith` ventas + recetas del cliente |
-| 4 | Agregación | MongoDB | *Pendiente* |
-| 5 | Agregación | MongoDB | *Pendiente* |
-| 6 | Lectura | MongoDB | `$lookup` receta → cliente |
-| 7 | Agregación | MongoDB | *Pendiente* |
-| 8 | Lectura | Redis + MongoDB | Combinación en la aplicación |
-| 9 | Lectura | MongoDB | Una sola colección |
-| 10 | Lectura | MongoDB | *Pendiente* |
-| 11 | Agregación (vista) | MongoDB | *Pendiente* |
-| 12 | Lectura | MongoDB | *Pendiente* |
-| 13 | Servicio | MongoDB | Una sola colección |
-| 14 | Servicio | MongoDB + Redis | Validación de cada referencia en la aplicación; ítems embebidos |
-| 15 | Servicio | MongoDB + Redis | Venta de MongoDB → lotes de Redis por la clave `stock:{sucursal}:{producto}` |
+Cada consulta es un módulo `farmared/consultas/qNN.py` con una función `ejecutar(...)` documentada (propósito, parámetros, retorno y motor). Se ejecuta desde la terminal con `python -m farmared.consultas.qNN [argumentos]`.
 
 ### Consulta 1 — Productos activos con su proveedor
 
-**Enunciado:** productos activos con todos los datos de su proveedor.
-
-**Motor:** MongoDB, colecciones `productos` y `proveedores`.
-
-**Código:** `farmared/consultas/q01.py`, función `ejecutar()`.
-
-| Función | Parámetros | Retorno |
-|---|---|---|
-| `ejecutar()` | Ninguno. | Lista de productos con `activo: true`, ordenada por id. Cada uno trae el documento completo de su proveedor en `proveedor`, en lugar de `id_proveedor`. |
-
-#### Cómo se resuelve la relación
-
-El producto **referencia** a su proveedor (`id_proveedor`) en lugar de embeberlo: un proveedor abastece muchos productos, y embeberlo repetiría sus datos en cada producto. Si cambiara, por ejemplo, el teléfono del proveedor, habría que actualizar todos sus productos (Clase 13, pp. 16–20).
-
-La relación se combina en la base con `$lookup`, que funciona como un *left outer join* (Clase 13, pp. 21–24). El catálogo y los proveedores cambian poco y se leen mucho, así que no hace falta desnormalizar para leer más rápido.
-
-#### Sentencia
+**Motor:** MongoDB. El producto referencia al proveedor y se combinan con `$lookup`.
 
 ```python
 db.productos.aggregate([
     {"$match": {"activo": True}},
-    {"$lookup": {
-        "from": "proveedores",
-        "localField": "id_proveedor",
-        "foreignField": "_id",
-        "as": "proveedor",
-    }},
-    {"$set": {"proveedor": {"$ifNull": [{"$first": "$proveedor"}, None]}}},
-    {"$unset": "id_proveedor"},
-    {"$sort": {"_id": 1}},
+    {"$lookup": {"from": "proveedores", "localField": "id_proveedor", "foreignField": "_id", "as": "proveedor"}},
+    {"$set": {"proveedor": {"$first": "$proveedor"}}},
 ])
 ```
 
-- `$match` va primero, así el `$lookup` solo se hace sobre los productos activos.
-- `$lookup` devuelve un arreglo. Como cada producto tiene un único proveedor, `$first` lo convierte en un subdocumento.
-- Si la referencia no existiera, el producto aparece igual con `proveedor: null` en lugar de desaparecer del resultado. La carga ya valida que todas las referencias existan, así que no debería pasar.
-- `foreignField` es `_id`, que siempre tiene índice. No hace falta crear otro.
-
-#### Decisiones
-
-- **Proveedor dado de baja:** el producto se lista igual, porque la consulta pide productos activos y el producto sigue en el catálogo. El campo `proveedor.activo` muestra el estado del proveedor. Es el caso del producto adicional PRD023, cuyo proveedor PRV013 está dado de baja.
-
-#### Ejemplo
-
-Desde la terminal del contenedor `app`, después de `python -m farmared.carga`:
-
-```text
-$ python -m farmared.consultas.q01
-```
-
-Devuelve 21 productos: PRD001–PRD011 de los provistos y PRD014–PRD023 de los adicionales. Quedan afuera los discontinuados PRD012, PRD013, PRD024 y PRD025. PRD023 aparece con `"proveedor": {"_id": "PRV013", ..., "activo": false}`. El primero:
-
-```json
-{
-  "_id": "PRD001",
-  "nombre": "Paracetamol 500mg x30",
-  "principio_activo": "Paracetamol",
-  "categoria": "Analgésico",
-  "presentacion": "Comprimidos x30",
-  "condicion_venta": "Venta libre",
-  "precio_unit": 2800,
-  "activo": true,
-  "proveedor": {
-    "_id": "PRV001",
-    "razon_social": "Laboratorios Andinos S.A.",
-    "cuit": "30-71234567-1",
-    "tipo": "Laboratorio",
-    "ciudad": "Buenos Aires",
-    "provincia": "Buenos Aires",
-    "telefono": "1143001100",
-    "activo": true
-  }
-}
-```
+**Resultado:** 21 productos. Un producto con el proveedor dado de baja aparece igual, con `proveedor.activo: false`.
 
 ### Consulta 2 — Ventas pendientes con su farmacéutico
 
-**Enunciado:** ventas en estado "Pendiente" con el farmacéutico asignado (nombre, matrícula y sucursal) y el total.
-
-**Motor:** MongoDB, colecciones `ventas`, `farmaceuticos` y `sucursales`.
-
-**Código:** `farmared/consultas/q02.py`, función `ejecutar()`.
-
-| Función | Parámetros | Retorno |
-|---|---|---|
-| `ejecutar()` | Ninguno. | Ventas pendientes ordenadas por fecha, con `_id`, `fecha`, `id_cliente`, `total` y `farmaceutico` (`_id`, `nombre`, `apellido`, `matricula` y `sucursal`). |
-
-#### Cómo se resuelve la relación
-
-Venta → farmacéutico → sucursal son dos relaciones N:1 guardadas como **referencias**. El farmacéutico tiene colección propia porque se consulta por sí solo (q05, q11), y la sucursal también (Clase 13, pp. 16–20).
-
-Las dos se combinan en la base con dos `$lookup` encadenados: el segundo usa el campo `id_sucursal` del farmacéutico que trajo el primero (Clase 13, pp. 21–24).
-
-La sucursal que se informa es la **del farmacéutico**, como pide la consigna. Coincide con `ventas.id_sucursal`, que la carga copia del farmacéutico, pero leerla del farmacéutico deja la relación explícita.
-
-#### Sentencia
+**Motor:** MongoDB. Dos `$lookup` encadenados: venta → farmacéutico → sucursal.
 
 ```python
 db.ventas.aggregate([
     {"$match": {"estado": "Pendiente"}},
-    {"$lookup": {"from": "farmaceuticos", "localField": "id_farmaceutico",
-                 "foreignField": "_id", "as": "farmaceutico"}},
+    {"$lookup": {"from": "farmaceuticos", "localField": "id_farmaceutico", "foreignField": "_id", "as": "farmaceutico"}},
     {"$set": {"farmaceutico": {"$first": "$farmaceutico"}}},
-    {"$lookup": {"from": "sucursales", "localField": "farmaceutico.id_sucursal",
-                 "foreignField": "_id", "as": "sucursal"}},
-    {"$project": {
-        "fecha": 1, "id_cliente": 1, "total": 1,
-        "farmaceutico": {
-            "_id": "$farmaceutico._id", "nombre": "$farmaceutico.nombre",
-            "apellido": "$farmaceutico.apellido", "matricula": "$farmaceutico.matricula",
-            "sucursal": ...,   # _id, nombre, ciudad y provincia de la sucursal
-        },
-    }},
-    {"$sort": {"fecha": 1, "_id": 1}},
+    {"$lookup": {"from": "sucursales", "localField": "farmaceutico.id_sucursal", "foreignField": "_id", "as": "sucursal"}},
+    {"$project": {"fecha": 1, "total": 1, "farmaceutico": ...}},   # nombre, matrícula y sucursal
 ])
 ```
 
-- `$match` va primero y usa el índice sobre `ventas.estado` que crea la carga.
-- Los dos `$lookup` buscan por `_id`, que siempre tiene índice.
-- `$project` deja solo los datos que pide la consigna.
-
-#### Ejemplo
-
-```text
-$ python -m farmared.consultas.q02
-```
-
-```json
-[
-  {
-    "_id": "V012",
-    "id_cliente": "C002",
-    "fecha": "2026-10-11",
-    "total": 9200,
-    "farmaceutico": {
-      "_id": "F005",
-      "nombre": "Natalia",
-      "apellido": "Giménez",
-      "matricula": "MN-18289",
-      "sucursal": {"_id": "S003", "nombre": "Farmacia Rosario Centro", "ciudad": "Rosario", "provincia": "Santa Fe"}
-    }
-  },
-  {
-    "_id": "V011",
-    "id_cliente": "C007",
-    "fecha": "2026-10-12",
-    "total": 4800,
-    "farmaceutico": {
-      "_id": "F006",
-      "nombre": "Matías",
-      "apellido": "Sandoval",
-      "matricula": "MN-18340",
-      "sucursal": {"_id": "S004", "nombre": "Farmacia Nueva Córdoba", "ciudad": "Córdoba", "provincia": "Córdoba"}
-    }
-  }
-]
-```
+**Resultado:** V012 ($9.200, Giménez, Farmacia Rosario Centro) y V011 ($4.800, Sandoval, Farmacia Nueva Córdoba).
 
 ### Consulta 3 — Historial de un cliente
 
-**Enunciado:** historial completo de un cliente (dado su id): ventas y recetas ordenadas cronológicamente por fecha.
-
-**Motor:** MongoDB, colecciones `clientes`, `ventas` y `recetas`.
-
-**Código:** `farmared/consultas/q03.py`, función `ejecutar(id_cliente)`.
-
-| Función | Parámetros | Retorno |
-|---|---|---|
-| `ejecutar(id_cliente)` | Id del cliente, por ejemplo `"C001"`. | `{"cliente": ..., "historial": [...]}`. Cada elemento del historial es una venta o una receta con `registro` (`"venta"` o `"receta"`) y `fecha`. Lanza `ErrorDeValidacion` si el cliente no existe. |
-
-#### Cómo se resuelve la relación
-
-Ventas y recetas tienen colección propia y **referencian al cliente** (`id_cliente`). Un cliente acumula ventas y recetas sin límite, así que embeberlas en el cliente haría crecer un arreglo sin tope (Clase 13, pp. 16–20).
-
-Para armar una sola línea de tiempo, el pipeline parte de las ventas del cliente y les suma sus recetas con `$unionWith`. Después ordena todo junto en la base. *Complemento (no está en las clases): `$unionWith` agrega al resultado los documentos de otra colección, como un `UNION ALL` de SQL. Ver el [manual de `$unionWith`](https://www.mongodb.com/docs/manual/reference/operator/aggregation/unionWith/).*
-
-Las ventas no traen un join con productos: sus ítems están embebidos, así que el historial ya incluye qué se compró.
-
-#### Sentencia
+**Motor:** MongoDB. `$unionWith` une las ventas y las recetas del cliente, y se ordenan juntas por fecha.
 
 ```python
-db.clientes.find_one({"_id": id_cliente})          # valida que exista
-
 db.ventas.aggregate([
-    {"$match": {"id_cliente": id_cliente}},
-    {"$set": {"registro": "venta"}},
-    {"$unionWith": {
-        "coll": "recetas",
-        "pipeline": [
-            {"$match": {"id_cliente": id_cliente}},
-            {"$set": {"registro": "receta", "fecha": "$fecha_emision"}},
-            {"$unset": "fecha_emision"},
-        ],
-    }},
-    {"$unset": "id_cliente"},
+    {"$match": {"id_cliente": id_cliente}}, {"$set": {"registro": "venta"}},
+    {"$unionWith": {"coll": "recetas", "pipeline": [
+        {"$match": {"id_cliente": id_cliente}},
+        {"$set": {"registro": "receta", "fecha": "$fecha_emision"}}]}},
     {"$sort": {"fecha": 1, "registro": 1, "_id": 1}},
 ])
 ```
 
-- Los dos `$match` usan los índices `ventas {id_cliente, fecha}` y `recetas {id_cliente}` que crea la carga.
-- Las recetas pasan su `fecha_emision` a `fecha`, así las dos colecciones se ordenan por el mismo campo.
-
-#### Decisiones
-
-- **Mismo día:** si una venta y una receta tienen la misma fecha, la receta va primero, porque se emite antes de dispensarse. Se logra ordenando por `registro`, ya que `"receta"` < `"venta"`.
-- **Todos los estados:** el historial incluye ventas pendientes y anuladas, y recetas en cualquier estado. Es el historial completo.
-- **Clientes dados de baja:** se muestran igual, con `cliente.activo: false`. La baja es lógica y el historial se conserva.
-- **Cliente inexistente:** se informa el error en lugar de devolver un historial vacío, para distinguirlo de un cliente sin movimientos.
-
-#### Ejemplo
-
-```text
-$ python -m farmared.consultas.q03 C001
-```
-
-Lucía Fernández (C001) tiene 6 registros:
-
-| Fecha | Registro | Id | Estado | Total |
-|---|---|---|---|---|
-| 2026-09-10 | receta | RC001 | Completada | |
-| 2026-09-10 | venta | V003 | Completada | 9800 |
-| 2026-09-25 | venta | V015 | Anulada | 3500 |
-| 2026-10-02 | venta | V013 | Completada | 4400 |
-| 2026-10-08 | receta | RC008 | Completada | |
-| 2026-10-08 | venta | V010 | Completada | 7100 |
-
-Los dos primeros elementos del historial:
-
-```json
-[
-  {
-    "_id": "RC001",
-    "medico": "Dr. Alejandro Vidal",
-    "matricula_medico": "MP-45210",
-    "tipo": "Simple",
-    "dispensas_autorizadas": 1,
-    "dispensas_realizadas": 1,
-    "proxima_dispensa": null,
-    "estado": "Completada",
-    "registro": "receta",
-    "fecha": "2026-09-10"
-  },
-  {
-    "_id": "V003",
-    "id_farmaceutico": "F001",
-    "id_sucursal": "S001",
-    "id_receta": "RC001",
-    "fecha": "2026-09-10",
-    "tipo": "Con receta",
-    "medio_pago": "Obra social",
-    "total": 9800,
-    "estado": "Completada",
-    "items": [
-      {"id_detalle": "D004", "id_producto": "PRD003", "cantidad": 1, "precio_unit": 9800}
-    ],
-    "registro": "venta"
-  }
-]
-```
-
-Casos borde:
-
-```text
-$ python -m farmared.consultas.q03 C016      # dado de baja y sin movimientos
-{"cliente": {"_id": "C016", ..., "activo": false}, "historial": []}
-
-$ python -m farmared.consultas.q03 C099
-✘ no existe el cliente C099
-```
+**Resultado para C001:** RC001, V003, V015, V013, RC008 y V010, en orden cronológico.
 
 ### Consulta 4 — Clientes con más de una receta
 
-**Enunciado:** clientes con más de una receta registrada, indicando la cantidad.
-
-*Pendiente: integrante 3.*
+*Pendiente (integrante 3).*
 
 ### Consulta 5 — Ventas de los últimos 60 días por farmacéutico
 
-**Enunciado:** farmacéuticos activos y cantidad de ventas registradas en los últimos 60 días (excluyendo anuladas). Deben aparecer también los que tienen cero.
-
-*Pendiente: integrante 3.*
+*Pendiente (integrante 3).*
 
 ### Consulta 6 — Recetas prolongadas con la dispensa atrasada
 
-**Enunciado:** recetas de tratamiento prolongado en estado "Vigente" cuya próxima dispensa es anterior a hoy, con los datos del cliente.
-
-**Motor:** MongoDB, colecciones `recetas` y `clientes`.
-
-**Código:** `farmared/consultas/q06.py`, función `ejecutar(hoy=None)`.
-
-| Función | Parámetros | Retorno |
-|---|---|---|
-| `ejecutar(hoy=None)` | Fecha de referencia. Por defecto, la fecha del sistema. | Recetas ordenadas de la más atrasada a la menos atrasada, con `dias_de_atraso` y el documento del cliente en `cliente`, en lugar de `id_cliente`. |
-
-#### Cómo se resuelve la relación
-
-La receta **referencia al cliente** (`id_cliente`): un cliente acumula recetas sin límite, así que conviene que el hijo apunte al padre y no un arreglo que crece en el cliente (Clase 13, pp. 16–20). Los datos del cliente se combinan con `$lookup` (Clase 13, pp. 21–24).
-
-#### "Hoy"
-
-La consigna exige usar la fecha del sistema (§3.3). `farmared/fechas.py` la toma con `date.today()`, que da la fecha argentina porque el contenedor corre con `TZ=America/Argentina/Buenos_Aires`. Después la convierte a las 00:00 UTC, que es como la carga guarda las fechas del CSV, así la comparación es día contra día.
-
-La función acepta un `hoy` opcional para que las pruebas y el informe den siempre el mismo resultado. En el código no hay fechas fijas.
-
-#### Sentencia
+**Motor:** MongoDB. `$lookup` receta → cliente, con "hoy" calculado por la aplicación.
 
 ```python
-hoy = datetime(2026, 11, 10)        # fechas.a_mongo(fechas.hoy())
-
 db.recetas.aggregate([
-    {"$match": {
-        "tipo": "Tratamiento prolongado",
-        "estado": "Vigente",
-        "proxima_dispensa": {"$lt": hoy},
-    }},
-    {"$lookup": {"from": "clientes", "localField": "id_cliente",
-                 "foreignField": "_id", "as": "cliente"}},
-    {"$set": {
-        "cliente": {"$ifNull": [{"$first": "$cliente"}, None]},
-        "dias_de_atraso": {"$dateDiff": {"startDate": "$proxima_dispensa",
-                                          "endDate": hoy, "unit": "day"}},
-    }},
-    {"$unset": "id_cliente"},
-    {"$sort": {"proxima_dispensa": 1, "_id": 1}},
+    {"$match": {"tipo": "Tratamiento prolongado", "estado": "Vigente", "proxima_dispensa": {"$lt": hoy}}},
+    {"$lookup": {"from": "clientes", "localField": "id_cliente", "foreignField": "_id", "as": "cliente"}},
+    {"$set": {"cliente": {"$first": "$cliente"}}},
 ])
 ```
 
-- El `$match` usa el índice `recetas {tipo, estado, proxima_dispensa}` que crea la carga: dos igualdades y un rango, en ese orden.
-- `dias_de_atraso` no lo pide la consigna, pero muestra cuánto se atrasó cada paciente. *Complemento (no está en las clases): `$dateDiff` cuenta los días entre dos fechas ([manual](https://www.mongodb.com/docs/manual/reference/operator/aggregation/dateDiff/)).*
-
-#### Decisiones
-
-- **Estrictamente anterior:** si la próxima dispensa es hoy, la receta no está atrasada y no aparece.
-- **Cliente dado de baja:** la receta aparece igual, con `cliente.activo: false`. La consulta filtra recetas, no clientes.
-
-#### Ejemplo
-
-```text
-$ python -m farmared.consultas.q06          # hoy = 2026-11-10
-```
-
-| Receta | Próxima dispensa | Días de atraso | Cliente |
-|---|---|---|---|
-| RC002 | 2026-09-15 | 56 | C003 Carla Ruiz |
-| RC003 | 2026-10-01 | 40 | C006 Ricardo Paz |
-| RC004 | 2026-10-20 | 21 | C006 Ricardo Paz |
-
-El primero completo:
-
-```json
-{
-  "_id": "RC002",
-  "medico": "Dra. Silvia Montenegro",
-  "matricula_medico": "MP-39877",
-  "fecha_emision": "2026-07-15",
-  "tipo": "Tratamiento prolongado",
-  "dispensas_autorizadas": 3,
-  "dispensas_realizadas": 2,
-  "proxima_dispensa": "2026-09-15",
-  "estado": "Vigente",
-  "cliente": {
-    "_id": "C003",
-    "nombre": "Carla",
-    "apellido": "Ruiz",
-    "dni": "40123456",
-    "email": "carla.r@gmail.com",
-    "telefono": "3515334455",
-    "ciudad": "Córdoba",
-    "provincia": "Córdoba",
-    "obra_social": "PAMI",
-    "nro_afiliado": "PA-771203",
-    "activo": true
-  },
-  "dias_de_atraso": 56
-}
-```
-
-Con otras fechas de referencia:
-
-```text
-$ python -m farmared.consultas.q06 --hoy 2026-10-13   # fecha de referencia de los datos
-RC002 (28 días), RC003 (12 días)
-
-$ python -m farmared.consultas.q06 --hoy 2026-10-20   # RC004 vence ese día: todavía no está atrasada
-RC002 (35 días), RC003 (19 días)
-```
+**Resultado al 14/11/2026:** RC002 (60 días de atraso), RC003 (44) y RC004 (25).
 
 ### Consulta 7 — Top 5 de productos más vendidos
 
-**Enunciado:** top 5 productos más vendidos (unidades), considerando solo ventas "Completada".
+*Pendiente (integrante 3).*
 
-*Pendiente: integrante 3.*
+### Consulta 8 — Lotes con menos de 50 unidades
 
-### Consulta 8 — Lotes con stock bajo
+**Motor:** Redis + MongoDB, combinados en la aplicación:
+1. Redis devuelve los lotes con menos de 50 unidades con `ZRANGEBYSCORE lotes:unidades -inf (50` y lee sus hashes en un pipeline.
+2. MongoDB trae los productos con su proveedor (`$lookup`) y las sucursales, con `$in`.
 
-**Enunciado:** lotes con menos de 50 unidades, indicando producto, sucursal y proveedor.
-
-**Motor:** Redis (stock) + MongoDB (producto, sucursal y proveedor). Es la única consulta de lectura que cruza motores.
-
-**Código:** `farmared/consultas/q08.py`, función `ejecutar(umbral=50, hoy=None)`.
-
-| Función | Parámetros | Retorno |
-|---|---|---|
-| `ejecutar(umbral=50, hoy=None)` | Umbral de unidades, estrictamente menor. Fecha de referencia para `vencido`; por defecto, la del sistema. | Lotes ordenados por unidades, con `_id`, `nro_lote`, `unidades`, `vencimiento`, `vencido`, `producto`, `sucursal` y `proveedor`. |
-
-#### Cómo se resuelve la relación
-
-El stock vive en Redis y el resto en MongoDB (ver [1.4](#14-qué-guarda-cada-motor-y-por-qué)). La relación lote → producto → proveedor y lote → sucursal cruza los dos motores, así que se resuelve **en la aplicación**, en tres pasos:
-
-1. **Redis, qué lotes:** el sorted set `lotes:unidades` tiene todos los lotes con score = unidades. `ZRANGEBYSCORE` devuelve directamente los que están por debajo del umbral, ordenados, sin recorrer todos los lotes (Clase 18, pp. 14–15).
-2. **Redis, datos de cada lote:** los hashes `lote:{id}` se leen en un solo viaje con un pipeline (Clase 18, pp. 18–19).
-3. **MongoDB, producto, proveedor y sucursal:** un `$lookup` trae los productos de esos lotes con su proveedor, y un `find` trae las sucursales. Cada uno usa un `$in` con los ids que salieron de Redis, así que son dos consultas en total, no una por lote.
-
-La aplicación combina los resultados por id.
-
-#### Sentencias
-
-```text
-ZRANGEBYSCORE lotes:unidades -inf (50          # "(" = estrictamente menor
-HGETALL lote:L010                              # una por lote, en un pipeline
-HGETALL lote:L018
-...
-```
-
-```python
-db.productos.aggregate([
-    {"$match": {"_id": {"$in": ["PRD001", "PRD003", ...]}}},
-    {"$lookup": {"from": "proveedores", "localField": "id_proveedor",
-                 "foreignField": "_id", "as": "proveedor"}},
-    {"$project": {"nombre": 1, "presentacion": 1, "proveedor": ...}},  # _id, razon_social, cuit, telefono
-])
-db.sucursales.find({"_id": {"$in": ["S001", "S002", ...]}}, {"nombre": 1, "tipo": 1, "ciudad": 1})
-```
-
-#### Decisiones
-
-- **Vencidos y en cero:** se listan. La consulta pide lotes con menos de 50 unidades sin excluir ninguno, y un lote vencido también es un faltante para reponer. `vencido` (`vencimiento < hoy`) indica cuáles ya no se pueden dispensar. Los lotes con 0 unidades no se borran (baja lógica), así que también aparecen.
-- **Droguería:** sus lotes entran igual que los de las farmacias, porque la consigna no la excluye. Con los datos provistos, ninguno está por debajo del umbral.
-- **Consistencia de la lectura:** el sorted set y los hashes se leen en dos pasos, no en una operación atómica. Si una venta descuenta stock entre los dos, las unidades que se muestran son las del hash, que es el dato más reciente. Para un reporte de reposición alcanza. Las escrituras sí mantienen el hash y el sorted set alineados (ver [2.3](#23-redis)).
-
-#### Ejemplo
-
-```text
-$ python -m farmared.consultas.q08          # hoy = 2026-11-10
-```
-
-Devuelve 20 lotes: 9 provistos y 11 adicionales.
-
-| Lote | Unidades | Vence | Vencido | Producto | Sucursal | Proveedor |
-|---|---|---|---|---|---|---|
-| L021 | 0 | 2027-05-31 | | Loratadina 10mg x10 | Farmacia Belgrano | Laboratorios Andinos S.A. |
-| L028 | 8 | 2026-12-05 | | Insulina glargina 100 UI/ml | Farmacia La Plata | Tala Salud S.R.L. |
-| L026 | 10 | 2026-11-25 | | Azitromicina 500mg x3 | Farmacia Rosario Centro | Laboratorios Ñandubay S.A. |
-| L010 | 12 | 2027-01-31 | | Alprazolam 0,5mg x30 | Farmacia Rosario Centro | Distribuidora Sur Salud S.A. |
-| L034 | 12 | 2026-07-31 | sí | Diazepam 10mg x20 | Farmacia Nueva Córdoba | Algarrobo Biofarma S.A. |
-| L018 | 15 | 2026-09-30 | sí | Alcohol en gel 250ml | Farmacia Belgrano | DroguMed S.R.L. |
-| L033 | 15 | 2026-11-20 | | Amoxicilina 500mg x21 | Farmacia Palermo | FarmaLitoral S.A. |
-| L003 | 18 | 2026-12-15 | | Paracetamol 500mg x30 | Farmacia Rosario Centro | Laboratorios Andinos S.A. |
-| L022 | 20 | 2026-10-15 | sí | Clonazepam 2mg x30 | Farmacia Palermo | Laboratorio Quebracho S.A. |
-| L007 | 22 | 2027-02-28 | | Losartán 50mg x30 | Farmacia Nueva Córdoba | DroguMed S.R.L. |
-| L019 | 25 | 2026-08-31 | sí | Paracetamol 500mg x30 | Farmacia Palermo | Laboratorios Andinos S.A. |
-| L012 | 30 | 2026-10-31 | sí | Salbutamol aerosol 100mcg | Farmacia Belgrano | Laboratorios Andinos S.A. |
-| L020 | 30 | 2026-12-20 | | Paracetamol 500mg x30 | Farmacia Palermo | Laboratorios Andinos S.A. |
-| L002 | 35 | 2027-08-31 | | Paracetamol 500mg x30 | Farmacia Belgrano | Laboratorios Andinos S.A. |
-| L027 | 35 | 2027-01-31 | | Protector solar FPS50 200ml | Farmacia Caballito | Droguería Médanos S.A. |
-| L005 | 40 | 2026-11-30 | | Amoxicilina 500mg x21 | Farmacia Palermo | FarmaLitoral S.A. |
-| L014 | 45 | 2027-04-30 | | Omeprazol 20mg x28 | Farmacia Nueva Córdoba | Distribuidora Sur Salud S.A. |
-| L024 | 45 | 2027-03-31 | | Cetirizina 10mg x10 | Farmacia Belgrano | Ceibo Farma S.A. |
-| L011 | 48 | 2027-10-31 | | Levotiroxina 100mcg x50 | Farmacia Belgrano | FarmaLitoral S.A. |
-| L030 | 49 | 2027-04-30 | | Clotrimazol crema 1% 20g | Farmacia Cerro de las Rosas | Droguería Jacarandá S.R.L. |
-
-Casos borde: L021 aparece con 0 unidades, porque los lotes agotados no se borran. L030 (49 unidades) entra y L031 (50) no, porque el umbral es estricto.
-
-El primero completo:
-
-```json
-{
-  "_id": "L021",
-  "nro_lote": "L-2512H",
-  "unidades": 0,
-  "vencimiento": "2027-05-31",
-  "vencido": false,
-  "producto": {"_id": "PRD011", "nombre": "Loratadina 10mg x10", "presentacion": "Comprimidos x10"},
-  "sucursal": {"_id": "S002", "nombre": "Farmacia Belgrano", "tipo": "Farmacia", "ciudad": "Buenos Aires"},
-  "proveedor": {"_id": "PRV001", "razon_social": "Laboratorios Andinos S.A.", "cuit": "30-71234567-1", "telefono": "1143001100"}
-}
-```
+**Resultado:** 20 lotes, incluidos los vencidos (`vencido: true`) y los que están en 0. El primero es L021 (0 unidades, Loratadina, Farmacia Belgrano).
 
 ### Consulta 9 — Ventas libres de menos de $5.000
 
-**Enunciado:** ventas de tipo "Venta libre" con total menor a $5.000 (excluyendo anuladas).
-
-**Motor:** MongoDB, colección `ventas`.
-
-**Código:** `farmared/consultas/q09.py`, función `ejecutar(tope=5000)`.
-
-| Función | Parámetros | Retorno |
-|---|---|---|
-| `ejecutar(tope=5000)` | Tope del total, estrictamente menor. Por defecto, el de la consigna. | Ventas completas, con sus ítems, ordenadas por fecha y por id. |
-
-#### Cómo se resuelve
-
-Es un filtro sobre una sola colección. Los ítems están **embebidos** en la venta, así que cada resultado ya trae su detalle y no hace falta combinar con otra colección (Clase 13, pp. 3–8).
-
-#### Sentencia
+**Motor:** MongoDB, una sola colección (los ítems vienen embebidos).
 
 ```python
-db.ventas.find({
-    "tipo": "Venta libre",
-    "total": {"$lt": 5000},
-    "estado": {"$ne": "Anulada"},
-}).sort([("fecha", 1), ("_id", 1)])
+db.ventas.find({"tipo": "Venta libre", "total": {"$lt": 5000}, "estado": {"$ne": "Anulada"}})
 ```
 
-#### Decisiones
-
-- **Pendientes:** se incluyen. La consigna solo excluye las anuladas, y una venta pendiente es una venta registrada aunque todavía no compute ingresos.
-- **Tope estricto:** una venta de exactamente $5.000 no entra ("menor a").
-
-#### Ejemplo
-
-```text
-$ python -m farmared.consultas.q09
-```
-
-Con los datos provistos devuelve V013 ($4.400) y V014 ($4.600). V015 ($3.500) queda afuera porque está anulada, y V002 ($5.750) porque supera el tope.
-
-```json
-[
-  {
-    "_id": "V013",
-    "id_cliente": "C001",
-    "id_farmaceutico": "F001",
-    "id_sucursal": "S001",
-    "id_receta": null,
-    "fecha": "2026-10-02",
-    "tipo": "Venta libre",
-    "medio_pago": "Efectivo",
-    "total": 4400,
-    "estado": "Completada",
-    "items": [
-      {"id_detalle": "D017", "id_producto": "PRD011", "cantidad": 2, "precio_unit": 2200}
-    ]
-  },
-  {
-    "_id": "V014",
-    "id_cliente": "C005",
-    "id_farmaceutico": "F005",
-    "id_sucursal": "S003",
-    "id_receta": null,
-    "fecha": "2026-10-05",
-    "tipo": "Venta libre",
-    "medio_pago": "Efectivo",
-    "total": 4600,
-    "estado": "Completada",
-    "items": [
-      {"id_detalle": "D018", "id_producto": "PRD001", "cantidad": 1, "precio_unit": 2800},
-      {"id_detalle": "D019", "id_producto": "PRD012", "cantidad": 1, "precio_unit": 1800}
-    ]
-  }
-]
-```
+**Resultado:** V013 ($4.400) y V014 ($4.600).
 
 ### Consulta 10 — Clientes atendidos en una sucursal
 
-**Enunciado:** todos los clientes atendidos en una sucursal determinada (a través del farmacéutico que registró la venta, esté activo o no).
+*Pendiente (integrante 3).*
 
-*Pendiente: integrante 3.*
+### Consulta 11 — Ingresos por farmacéutico en el mes actual (vista)
 
-### Consulta 11 — Ingresos por farmacéutico en el mes actual
-
-**Enunciado:** vista agregada: ingresos totales por farmacéutico en el mes actual (solo ventas "Completada").
-
-*Pendiente: integrante 3.*
+*Pendiente (integrante 3).*
 
 ### Consulta 12 — Clientes sin ventas en el último año
 
-**Enunciado:** clientes sin ventas registradas en el último año.
-
-*Pendiente: integrante 3.*
+*Pendiente (integrante 3).*
 
 ### Consulta 13 — ABM de clientes
 
-**Enunciado:** ABM completo de clientes: alta (validando DNI único), modificación de datos de contacto y cobertura, y baja lógica.
+**Motor:** MongoDB, `clientes`. Funciones `alta(...)`, `modificar(id_cliente, **cambios)` y `baja(id_cliente)`.
 
-**Motor:** MongoDB, colección `clientes`.
+- **Alta:** el DNI único lo garantiza el índice único. Si dos altas usan el mismo DNI al mismo tiempo, una sola queda registrada.
+- **Modificación:** solo contacto y cobertura. Con "Sin cobertura" no hay número de afiliado; con cualquier otra obra social, es obligatorio.
+- **Baja:** lógica, con `find_one_and_update({"_id": id, "activo": True}, {"$set": {"activo": False}})`.
 
-**Código:** `farmared/consultas/q13.py`, con una función por operación:
-
-| Función | Parámetros | Retorno |
-|---|---|---|
-| `alta(nombre, apellido, dni, email, telefono, ciudad, provincia, obra_social, nro_afiliado=None)` | Los campos de `clientes.csv`, salvo `id_cliente` y `activo`. | Documento insertado, con el siguiente id de la serie y `activo: true`. |
-| `modificar(id_cliente, **cambios)` | Uno o más de `email`, `telefono`, `ciudad`, `provincia`, `obra_social`, `nro_afiliado`. | Documento modificado. |
-| `baja(id_cliente)` | Id del cliente. | Documento con `activo: false`. |
-
-Si el pedido viola una regla, las tres lanzan `ErrorDeValidacion` sin modificar nada.
-
-#### Reglas
-
-- **DNI único:** de 7 u 8 dígitos y sin repetir, tampoco con un cliente dado de baja, porque el DNI identifica a la persona.
-- **Cobertura:** la obra social es una de las de la consigna. Con "Sin cobertura" no hay número de afiliado; con cualquier otra, es obligatorio.
-- **Contacto:** email con formato válido y teléfono solo con dígitos.
-- **Modificación:** solo datos de contacto (`email`, `telefono`, `ciudad`, `provincia`) y de cobertura (`obra_social`, `nro_afiliado`). Nombre, apellido y DNI no se modifican.
-- **Cliente activo:** solo se modifica o da de baja un cliente existente y activo. Nunca se borra un documento: la baja es lógica, y las ventas y recetas del cliente no cambian.
-
-#### Sentencias
-
-La unicidad del DNI no se valida con una búsqueda previa, que dejaría una ventana entre la búsqueda y el insert. La garantiza el índice único que crea la carga: si el insert falla por `dni`, se rechaza el alta. Si falla por `_id`, otra alta tomó el mismo id al mismo tiempo, y se reintenta con el siguiente.
-
-```python
-clientes.create_index("dni", unique=True)          # en la carga
-clientes.insert_one({"_id": "C021", ..., "activo": True})
-```
-
-La modificación y la baja filtran por `activo: true` en la misma operación que actualiza. Así no se puede modificar un cliente que otra operación acaba de dar de baja:
-
-```python
-clientes.find_one_and_update(
-    {"_id": id_cliente, "activo": True},
-    {"$set": cambios},              # baja: {"$set": {"activo": False}}
-    return_document=ReturnDocument.AFTER,
-)
-```
-
-Probamos la concurrencia lanzando 8 altas simultáneas:
-- Con DNI distintos, recibieron ids distintos (C022–C029).
-- Con el mismo DNI, quedó registrada una sola y las otras 7 se rechazaron.
-
-#### Ejemplos
-
-Desde la terminal del contenedor `app`, después de `python -m farmared.carga`.
-
-##### Alta
-
-**Antes:** no hay ningún cliente con DNI 40111222, y el último id es C020.
-
-```text
-$ python -m farmared.consultas.q13 alta --nombre Ana --apellido Paz --dni 40111222 \
-    --email ana.paz@example.com --telefono 1140001111 --ciudad "Buenos Aires" \
-    --provincia "Buenos Aires" --obra-social OSDE --nro-afiliado OS-500100
-```
-
-**Después:**
-
-```json
-{
-  "_id": "C021",
-  "nombre": "Ana",
-  "apellido": "Paz",
-  "dni": "40111222",
-  "email": "ana.paz@example.com",
-  "telefono": "1140001111",
-  "ciudad": "Buenos Aires",
-  "provincia": "Buenos Aires",
-  "obra_social": "OSDE",
-  "nro_afiliado": "OS-500100",
-  "activo": true
-}
-```
-
-##### Modificación
-
-**Antes:** el documento anterior, con OSDE y teléfono 1140001111. La clienta deja la obra social y cambia de teléfono:
-
-```text
-$ python -m farmared.consultas.q13 modificar C021 --telefono 1140002222 \
-    --obra-social "Sin cobertura" --nro-afiliado ""
-```
-
-**Después:**
-
-```json
-{
-  "_id": "C021",
-  "nombre": "Ana",
-  "apellido": "Paz",
-  "dni": "40111222",
-  "email": "ana.paz@example.com",
-  "telefono": "1140002222",
-  "ciudad": "Buenos Aires",
-  "provincia": "Buenos Aires",
-  "obra_social": "Sin cobertura",
-  "nro_afiliado": null,
-  "activo": true
-}
-```
-
-##### Baja
-
-**Antes:** el documento anterior, con `activo: true`.
-
-```text
-$ python -m farmared.consultas.q13 baja C021
-```
-
-**Después:** el mismo documento con `"activo": false`. Sigue en la colección.
-
-##### Rechazos
-
-En ninguno de estos casos cambia el documento.
-
-```text
-$ python -m farmared.consultas.q13 alta --nombre Otra --apellido Persona --dni 31245678 ...
-✘ Rechazado: el DNI 31245678 ya está registrado (C001, activo)
-
-$ python -m farmared.consultas.q13 alta --nombre Otra --apellido Persona --dni 25678901 ...
-✘ Rechazado: el DNI 25678901 ya está registrado (C008, dado de baja)
-
-$ python -m farmared.consultas.q13 alta ... --obra-social Medicus --nro-afiliado X
-✘ Rechazado: obra social inválida: 'Medicus'; opciones: Galeno, IOMA, OSDE, PAMI, Sin cobertura, Swiss Medical
-
-$ python -m farmared.consultas.q13 modificar C021 --telefono 1140002222 --obra-social "Sin cobertura"
-✘ Rechazado: un cliente sin cobertura no lleva número de afiliado
-
-$ python -m farmared.consultas.q13 modificar C021 --obra-social Galeno
-✘ Rechazado: falta el número de afiliado de Galeno
-
-$ python -m farmared.consultas.q13 baja C021          # segunda vez
-✘ Rechazado: el cliente C021 está dado de baja
-
-$ python -m farmared.consultas.q13 modificar C021 --telefono 1140003333
-✘ Rechazado: el cliente C021 está dado de baja
-
-$ python -m farmared.consultas.q13 modificar C099 --telefono 1140003333
-✘ Rechazado: no existe el cliente C099
-```
-
-Desde Python, un campo no modificable también se rechaza:
-
-```python
->>> q13.modificar("C001", dni="1")
-ErrorDeValidacion: no se pueden modificar: dni
-```
+![Consulta 13: alta y rechazo por DNI repetido](img/q13.png)
 
 ### Consulta 14 — Registro de una venta "Completada"
 
-**Enunciado:** registro de una nueva venta "Completada" (cabecera e ítems) con validación de: cliente existente y activo; farmacéutico existente, activo y de una sucursal tipo "Farmacia"; productos existentes y activos; y, para productos bajo receta, receta existente, vigente y del mismo cliente. El total se calcula a partir de los ítems y se actualiza la receta según las reglas de negocio.
+**Motor:** MongoDB (validaciones, venta y receta, en una transacción) + Redis (stock, a través de q15). Recibe `ejecutar(id_cliente, id_farmaceutico, items, medio_pago, id_receta=None, hoy=None)`.
 
-**Motor:** MongoDB (validaciones, venta y receta, en una transacción) + Redis (stock, a través de q15).
+**Validaciones:**
+- **Las que pide la consigna:** cliente activo; farmacéutico activo de una sucursal "Farmacia"; productos activos; para productos bajo receta, receta vigente del mismo cliente y con dispensas disponibles.
+- **Supuestos nuestros** (ver [6.4](#64-supuestos)): un producto archivado exige receta "Archivada"; no se acepta una receta que ningún producto necesita; la cantidad es un entero positivo; el medio de pago es uno de los del CSV; "Obra social" solo para clientes con cobertura.
 
-**Código:** `farmared/consultas/q14.py`.
-
-| Función | Parámetros | Retorno |
-|---|---|---|
-| `ejecutar(id_cliente, id_farmaceutico, items, medio_pago, id_receta=None, hoy=None)` | `items`: lista de `(id_producto, cantidad)`. `hoy`: fecha de la venta y referencia para los vencimientos; por defecto, la del sistema. | `venta` (documento insertado), `receta` (`antes` y `despues`, o `None` si no usa receta) y `stock` (resultado de q15, con las unidades antes y después de cada lote). |
-
-Si el pedido viola una regla o el stock no alcanza, lanza `ErrorDeValidacion` sin modificar nada. La estrategia para que venta, receta y stock queden todos o ninguno está en [6.3](#63-consultas-14-y-15-todo-o-nada-entre-dos-motores).
-
-#### Cómo se resuelven las relaciones
-
-- **Referencias** (cliente, farmacéutico, sucursal, productos y receta): se validan en la aplicación, leyendo cada documento por `_id` dentro de la transacción. La sucursal se obtiene a través del farmacéutico, y los productos con un único `find` con `$in`.
-- **Ítems:** van embebidos en la venta, así que cabecera e ítems se insertan en una sola operación.
-- **Stock:** q15 lo descuenta en Redis a partir del id de la venta.
-
-#### Validaciones
-
-| Regla | Origen |
-|---|---|
-| Cliente existente y activo | Consigna |
-| Farmacéutico existente y activo, de una sucursal de tipo "Farmacia" | Consigna |
-| Productos existentes y activos | Consigna |
-| Si algún producto es "Bajo receta" o "Bajo receta archivada": receta existente, "Vigente", del mismo cliente y con dispensas disponibles | Consigna |
-| Si algún producto es "Bajo receta archivada": la receta tiene que ser de tipo "Archivada" | Supuesto nuestro (ver [6.6](#66-reglas-de-negocio-y-supuestos)) |
-| Si ningún producto exige receta, no se acepta una receta | Supuesto nuestro |
-| Cantidad entera mayor a 0, medio de pago entre los del CSV, "Obra social" solo para clientes con cobertura | Validaciones extra |
-
-El precio de cada ítem es el de lista vigente y el total, la suma de cantidad × precio. El tipo de la venta se deriva: "Con receta" si usa receta, "Venta libre" si no. La venta es una dispensa: suma 1 a `dispensas_realizadas`; si llega a las autorizadas, la receta pasa a "Completada" y `proxima_dispensa` queda vacía; si no, `proxima_dispensa` pasa a 30 días después de la venta (Consigna, p. 5).
-
-#### Sentencias
-
-Simplificado; el código completo maneja además los reintentos y la compensación (ver [6.3](#63-consultas-14-y-15-todo-o-nada-entre-dos-motores)).
+El precio sale del catálogo y el total es la suma de los ítems. La receta suma una dispensa: si llega a las autorizadas pasa a "Completada"; si no, la próxima dispensa queda a 30 días.
 
 ```python
-with client.start_session() as sesion:
-    sesion.start_transaction()
-
-    # Validaciones: cada lectura dentro de la transacción.
-    cliente = db.clientes.find_one({"_id": id_cliente}, session=sesion)
-    farmaceutico = db.farmaceuticos.find_one({"_id": id_farmaceutico}, session=sesion)
-    sucursal = db.sucursales.find_one({"_id": farmaceutico["id_sucursal"]}, session=sesion)
-    productos = db.productos.find({"_id": {"$in": ids_productos}}, session=sesion)
-    receta = db.recetas.find_one({"_id": id_receta}, session=sesion)
-
-    # Ids de la serie: $inc atómico, fuera de la transacción.
-    db.contadores.find_one_and_update({"_id": "ventas"}, {"$inc": {"ultimo": 1}},
-                                      return_document=ReturnDocument.AFTER)
-
-    db.ventas.insert_one({"_id": "V017", ..., "estado": "Completada", "items": [...]},
-                         session=sesion)
-    db.recetas.find_one_and_update(
-        {"_id": id_receta, "estado": "Vigente", "dispensas_realizadas": n},
-        {"$set": {"dispensas_realizadas": n + 1, "proxima_dispensa": hoy + 30 días}},
-        session=sesion)           # o estado "Completada" y proxima_dispensa null
-
-    q15.ejecutar("V017", hoy, sesion)   # script Lua en Redis: descuenta o rechaza
-    sesion.commit_transaction()         # si falla y la venta no quedó: stock.reponer("V017")
+sesion.start_transaction()
+# validaciones: find_one de cliente, farmacéutico, sucursal, productos y receta, con session=sesion
+db.ventas.insert_one(venta, session=sesion)
+db.recetas.find_one_and_update(
+    {"_id": id_receta, "estado": "Vigente", "dispensas_realizadas": n},
+    {"$set": {"dispensas_realizadas": n + 1, "proxima_dispensa": hoy + 30 días}}, session=sesion)
+q15.ejecutar(id_venta, hoy, sesion)   # Redis: descuenta todo o rechaza sin tocar nada
+sesion.commit_transaction()           # si falla y la venta no quedó registrada: stock.reponer(id_venta)
 ```
 
-#### Ejemplos
+**Venta exitosa:** 20 unidades de PRD003 y 35 de PRD001 en S001, con la primera dispensa de la receta prolongada RC012. PRD001 saltea el lote vencido L019 y consume L020 y después L001. La receta pasa a 1 de 3 dispensas, con la próxima a 30 días.
 
-Desde la terminal del contenedor `app`, después de `python -m farmared.carga`, el 14/11/2026. Los resultados dependen de la fecha: L033 vence el 20/11/2026.
+![Consulta 14: venta exitosa con FEFO](img/q14-venta.png)
 
-**Venta exitosa con FEFO, un lote vencido y una receta prolongada.** Una venta de 20 unidades de PRD003 (bajo receta) y 35 de PRD001 (venta libre) en S001, con la primera dispensa de una receta de tratamiento prolongado.
+### Consulta 15 — Descuento de stock FEFO
 
-*Antes:*
+**Motor:** MongoDB (lee la venta) + Redis. Recibe `ejecutar(id_venta, hoy=None, sesion=None)`; con la sesión de q14 ve la venta todavía sin confirmar.
 
-```text
-$ redis-cli -h redis ZRANGE stock:S001:PRD003 0 -1 WITHSCORES      # lote, vencimiento
-L033  20261120    (15 unidades)
-L005  20261130    (40 unidades)
-L015  20270630    (100 unidades)
-
-$ redis-cli -h redis ZRANGE stock:S001:PRD001 0 -1 WITHSCORES
-L019  20260831    (25 unidades, vencido)
-L020  20261220    (30 unidades)
-L001  20270831    (120 unidades)
-```
-
-RC012 es de C011, de tratamiento prolongado, con 0 de 3 dispensas y "Vigente".
-
-```text
-$ python -m farmared.consultas.q14 --cliente C011 --farmaceutico F001 \
-    --item PRD003:20 --item PRD001:35 --medio-pago "Obra social" --receta RC012
-```
-
-*Después* (salida de q14):
-
-```json
-{
-  "venta": {
-    "_id": "V017",
-    "id_cliente": "C011",
-    "id_farmaceutico": "F001",
-    "id_sucursal": "S001",
-    "id_receta": "RC012",
-    "fecha": "2026-11-14",
-    "tipo": "Con receta",
-    "medio_pago": "Obra social",
-    "total": 294000,
-    "estado": "Completada",
-    "items": [
-      { "id_detalle": "D023", "id_producto": "PRD003", "cantidad": 20, "precio_unit": 9800 },
-      { "id_detalle": "D024", "id_producto": "PRD001", "cantidad": 35, "precio_unit": 2800 }
-    ]
-  },
-  "receta": {
-    "antes":   { "_id": "RC012", "tipo": "Tratamiento prolongado", "dispensas_autorizadas": 3,
-                 "dispensas_realizadas": 0, "proxima_dispensa": null, "estado": "Vigente", "...": "..." },
-    "despues": { "_id": "RC012", "tipo": "Tratamiento prolongado", "dispensas_autorizadas": 3,
-                 "dispensas_realizadas": 1, "proxima_dispensa": "2026-12-14", "estado": "Vigente", "...": "..." }
-  },
-  "stock": {
-    "id_venta": "V017",
-    "id_sucursal": "S001",
-    "lotes": [
-      { "_id": "L033", "id_producto": "PRD003", "vencimiento": "2026-11-20", "antes": 15,  "descontadas": 15, "despues": 0 },
-      { "_id": "L005", "id_producto": "PRD003", "vencimiento": "2026-11-30", "antes": 40,  "descontadas": 5,  "despues": 35 },
-      { "_id": "L020", "id_producto": "PRD001", "vencimiento": "2026-12-20", "antes": 30,  "descontadas": 30, "despues": 0 },
-      { "_id": "L001", "id_producto": "PRD001", "vencimiento": "2027-08-31", "antes": 120, "descontadas": 5,  "despues": 115 }
-    ]
-  }
-}
-```
-
-- El total es 20 × 9.800 + 35 × 2.800 = 294.000, con los precios de lista.
-- PRD003 consume primero L033, que vence antes, y completa con L005. L015 no se toca.
-- PRD001 saltea L019, que está vencido, y consume L020 y después L001.
-- La receta suma una dispensa y su próxima dispensa pasa a 30 días después de la venta.
-
-**Última dispensa: la receta se completa.** RC002 (C003) tiene 2 de 3 dispensas.
-
-```text
-$ python -m farmared.consultas.q14 --cliente C003 --farmaceutico F006 \
-    --item PRD004:2 --medio-pago "Obra social" --receta RC002
-```
-
-Después: V018 por $12.400; RC002 queda con 3 de 3 dispensas, `proxima_dispensa: null` y estado "Completada"; L007 pasa de 22 a 20 unidades. Una nueva venta con RC002 se rechaza:
-
-```text
-✘ Rechazado: la receta RC002 no está vigente (Completada)
-```
-
-**Rechazos por validación.** En ninguno cambia la base: la transacción se aborta antes de llegar a Redis.
-
-```text
-$ python -m farmared.consultas.q14 --cliente C016 --farmaceutico F001 --item PRD003:1 --medio-pago Efectivo --receta RC019
-✘ Rechazado: el cliente C016 está dado de baja
-
-$ python -m farmared.consultas.q14 --cliente C099 --farmaceutico F001 --item PRD001:1 --medio-pago Efectivo
-✘ Rechazado: no existe el cliente C099
-
-$ python -m farmared.consultas.q14 --cliente C014 --farmaceutico F004 --item PRD001:1 --medio-pago Efectivo
-✘ Rechazado: el farmacéutico F004 está dado de baja
-
-$ python -m farmared.consultas.q14 --cliente C014 --farmaceutico F007 --item PRD001:1 --medio-pago Efectivo
-✘ Rechazado: S005 (Droguería Central) es Droguería: solo se vende en farmacias
-
-$ python -m farmared.consultas.q14 --cliente C014 --farmaceutico F001 --item PRD012:1 --medio-pago Efectivo
-✘ Rechazado: producto discontinuado: PRD012
-
-$ python -m farmared.consultas.q14 --cliente C014 --farmaceutico F001 --item PRD999:1 --medio-pago Efectivo
-✘ Rechazado: no existe el producto PRD999
-
-$ python -m farmared.consultas.q14 --cliente C014 --farmaceutico F001 --item PRD003:1 --medio-pago Efectivo
-✘ Rechazado: PRD003 requiere receta
-
-$ python -m farmared.consultas.q14 --cliente C009 --farmaceutico F001 --item PRD003:1 --medio-pago Efectivo --receta RC014
-✘ Rechazado: la receta RC014 es de otro cliente (C014)
-
-$ python -m farmared.consultas.q14 --cliente C013 --farmaceutico F001 --item PRD003:1 --medio-pago Efectivo --receta RC013
-✘ Rechazado: la receta RC013 no está vigente (Vencida)
-
-$ python -m farmared.consultas.q14 --cliente C018 --farmaceutico F001 --item PRD017:1 --medio-pago Efectivo --receta RC016
-✘ Rechazado: PRD017 requiere receta archivada; RC016 es Simple
-
-$ python -m farmared.consultas.q14 --cliente C014 --farmaceutico F001 --item PRD001:1 --medio-pago Efectivo --receta RC014
-✘ Rechazado: ningún producto de la venta requiere receta; no se informa RC014
-
-$ python -m farmared.consultas.q14 --cliente C012 --farmaceutico F001 --item PRD003:1 --medio-pago "Obra social" --receta RC018
-✘ Rechazado: el cliente C012 no tiene cobertura: no puede pagar con obra social
-
-$ python -m farmared.consultas.q14 --cliente C014 --farmaceutico F001 --item PRD001:0 --medio-pago Efectivo
-✘ Rechazado: cantidad inválida para PRD001: 0; tiene que ser un entero mayor a 0
-
-$ python -m farmared.consultas.q14 --cliente C014 --farmaceutico F001 --item PRD001:1 --medio-pago Bitcoin
-✘ Rechazado: medio de pago inválido: 'Bitcoin'; opciones: Crédito, Débito, Efectivo, Obra social, Transferencia
-```
-
-Los rechazos por falta de stock se muestran en la consulta 15.
-
-### Consulta 15 — Descuento de stock FEFO de una venta
-
-**Enunciado:** actualización masiva del stock: dada una venta registrada, decrementar las unidades de cada producto del detalle en los lotes de la sucursal del farmacéutico, aplicando FEFO y omitiendo lotes vencidos. Si el stock vigente no alcanza para algún ítem, la operación completa se rechaza sin modificar ningún lote.
-
-**Motor:** MongoDB (lee la venta) + Redis (descuenta el stock con un script Lua).
-
-**Código:** `farmared/consultas/q15.py` y los scripts de `farmared/stock.py`.
-
-| Función | Parámetros | Retorno |
-|---|---|---|
-| `q15.ejecutar(id_venta, hoy=None, sesion=None)` | `hoy`: para decidir qué lotes están vencidos; por defecto, la fecha del sistema. `sesion`: la sesión de MongoDB de q14, si se llama desde ahí. | `id_venta`, `id_sucursal` y `lotes`: cada lote tocado con `_id`, `id_producto`, `vencimiento` y unidades `antes`, `descontadas` y `despues`, en el orden en que se consumieron. |
-| `stock.descontar(id_venta, id_sucursal, cantidades, hoy)` | `cantidades`: id_producto → unidades. | Lotes descontados. |
-| `stock.reponer(id_venta)` | | Cantidad de lotes repuestos. Es la compensación de q14. |
-
-Lanza `ErrorDeValidacion` sin modificar nada si la venta no existe, no está "Completada", ya se descontó o el stock vigente no alcanza.
-
-#### Cómo se resuelve
-
-1. **MongoDB:** lee la venta. Con la sesión de q14, la lee dentro de su transacción, donde ya está insertada aunque no confirmada. Así la misma función sirve integrada en q14 y sola.
-2. **Aplicación:** suma las cantidades por producto, por si un producto aparece en más de un ítem. Si no se sumaran, cada ítem vería el mismo stock.
-3. **Redis:** el script `descontar` recibe una clave `stock:{sucursal}:{producto}` por producto, con la sucursal de la venta. `ZRANGEBYSCORE` desde hoy devuelve solo los lotes vigentes, ya ordenados por vencimiento: eso es FEFO sin ordenar en la aplicación (Clase 18, pp. 14–15).
-
-El script trabaja en dos pasadas. Primero arma el plan de todos los productos sin escribir nada; si alguno no alcanza, devuelve los faltantes. Si alcanzan todos, aplica el plan y marca la venta como descontada. Como Redis no atiende a otro cliente mientras corre el script, nadie puede consumir el mismo stock entre la verificación y el descuento (Clase 17, p. 31).
-
-#### Sentencia
+El script Lua `descontar` recibe una clave `stock:{sucursal}:{producto}` por producto. `ZRANGEBYSCORE` desde hoy devuelve solo los lotes vigentes, ya ordenados por vencimiento. El script trabaja en dos pasadas:
 
 ```lua
--- KEYS: ventas:descontadas, descuento:{id_venta}, lotes:unidades, stock:{sucursal}:{producto}...
--- ARGV: id_venta, hoy (AAAAMMDD), cantidad pedida de cada producto, en el orden de KEYS[4..]
-local descontadas, descuento, por_unidades = KEYS[1], KEYS[2], KEYS[3]
-local id_venta, hoy = ARGV[1], ARGV[2]
-
-if redis.call('SISMEMBER', descontadas, id_venta) == 1 then
-  return cjson.encode({estado = 'ya_descontada'})
-end
-
--- Primera pasada: plan FEFO de todos los productos, sin escribir.
-local plan, faltantes = {}, {}
-for i = 4, #KEYS do
-  local pedido = tonumber(ARGV[i - 1])
-  local restante = pedido
+for i = 4, #KEYS do                                    -- primera pasada: plan FEFO, sin escribir
   for _, id_lote in ipairs(redis.call('ZRANGEBYSCORE', KEYS[i], hoy, '+inf')) do
-    if restante == 0 then break end
-    local lote = redis.call('HMGET', 'lote:' .. id_lote, 'unidades', 'id_producto', 'vencimiento')
-    local unidades = tonumber(lote[1])
-    local toma = math.min(unidades, restante)
-    if toma > 0 then
-      table.insert(plan, {id_lote = id_lote, id_producto = lote[2], vencimiento = lote[3],
-                          antes = unidades, descontadas = toma})
-      restante = restante - toma
-    end
+    -- toma min(unidades del lote, lo que falta) y lo anota en el plan
   end
-  if restante > 0 then
-    table.insert(faltantes, {stock = KEYS[i], pedido = pedido, disponible = pedido - restante})
-  end
+  if restante > 0 then table.insert(faltantes, ...) end
 end
-
-if #faltantes > 0 then
-  return cjson.encode({estado = 'insuficiente', faltantes = faltantes})
-end
-
--- Segunda pasada: aplica el plan y registra la venta.
-for _, paso in ipairs(plan) do
+if #faltantes > 0 then return cjson.encode({estado = 'insuficiente', faltantes = faltantes}) end
+for _, paso in ipairs(plan) do                         -- segunda pasada: aplica el plan
   paso.despues = redis.call('HINCRBY', 'lote:' .. paso.id_lote, 'unidades', -paso.descontadas)
-  redis.call('ZADD', por_unidades, paso.despues, paso.id_lote)
+  redis.call('ZADD', 'lotes:unidades', paso.despues, paso.id_lote)
   redis.call('HSET', descuento, paso.id_lote, paso.descontadas)
 end
-redis.call('SADD', descontadas, id_venta)
-return cjson.encode({estado = 'ok', lotes = plan})
+redis.call('SADD', 'ventas:descontadas', id_venta)
 ```
 
-`reponer` recorre `descuento:{id_venta}`, devuelve a cada lote sus unidades con `HINCRBY`, actualiza `lotes:unidades` y borra la marca, también en una sola operación.
+**Rechazo por stock:** PRD017 solo tiene en S001 el lote L022, con 20 unidades pero vencido. La venta se rechaza y antes y después quedan iguales la receta RC011 (0 dispensas, "Vigente") y el lote L022 (20 unidades).
 
-#### Ejemplos
-
-La venta exitosa de la consulta 14 muestra el descuento por FEFO lote por lote. Acá, los rechazos.
-
-**Rechazo por stock: no queda nada.**
-
-*Antes:* 18 ventas (V001–V018). RC011 (C010, archivada) y RC014 (C014) con 0 dispensas y "Vigente". En S001, el único lote de PRD017 es L022, con 20 unidades pero vencido el 15/10/2026. PRD006 tiene 60 unidades en L009.
-
-```text
-$ python -m farmared.consultas.q14 --cliente C010 --farmaceutico F001 \
-    --item PRD017:1 --medio-pago Transferencia --receta RC011
-✘ Rechazado: stock vigente insuficiente en S001 (PRD017: pide 1, hay 0)
-
-$ python -m farmared.consultas.q14 --cliente C014 --farmaceutico F001 \
-    --item PRD003:5 --item PRD006:500 --medio-pago "Obra social" --receta RC014
-✘ Rechazado: stock vigente insuficiente en S001 (PRD006: pide 500, hay 60)
-```
-
-*Después:* siguen siendo 18 ventas; RC011 y RC014 siguen con 0 dispensas y "Vigente"; L022 sigue con 20 unidades, L009 con 60 y los lotes de PRD003 sin cambios. En el segundo caso PRD003 sí alcanzaba, pero como PRD006 no, el script no descontó ninguno de los dos. No hay ningún `descuento:*` nuevo.
-
-**q15 sola:**
-
-```text
-$ python -m farmared.consultas.q15 V017        # ya descontada por q14
-✘ Rechazado: el stock de la venta V017 ya se descontó
-
-$ python -m farmared.consultas.q15 V003        # venta de los CSV: su stock ya está en los lotes
-✘ Rechazado: el stock de la venta V003 ya se descontó
-
-$ python -m farmared.consultas.q15 V011
-✘ Rechazado: la venta V011 está Pendiente: solo una venta Completada descuenta stock
-```
+![Consulta 14 + 15: rechazo por stock, sin cambios](img/q15-rechazo.png)
 
 ## 6. Consistencia e integridad
 
 ### 6.1 Integridad referencial
 
-MongoDB y Redis no garantizan integridad referencial (Consigna, p. 6), así que la resolvemos en tres frentes:
+Los motores no la garantizan, así que la resolvemos así:
+- **En la carga:**
+  - cada referencia de la consigna apunta a un id existente;
+  - no hay ids, DNI ni matrículas repetidos;
+  - el total de cada venta es la suma de sus ítems;
+  - la receta de cada venta es del mismo cliente;
+  - ningún lote es negativo.
+- **En los servicios de escritura:** validan las entidades que referencian, dentro de la misma transacción en la que escriben.
+- **En el modelo:** índices únicos; ítems embebidos, que no pueden existir sin su venta; bajas lógicas, así que ninguna referencia apunta a un documento borrado.
 
-**En la carga**, para los datos de los CSV. Antes de escribir, el script valida los datos combinados de ambos orígenes:
-- Solo pueden estar vacíos `nro_afiliado`, `proxima_dispensa` e `id_receta`, que la consigna permite vacíos.
-- No hay ids repetidos, tampoco entre provistos y adicionales, ni DNI ni matrículas repetidos.
-- Cada referencia de la consigna (§2.10) apunta a un id existente: sucursal del farmacéutico, proveedor del producto, producto y sucursal del lote, cliente de la receta, cliente, farmacéutico y receta de la venta, y venta y producto de cada ítem.
-- Cada venta tiene al menos un ítem y su total es la suma de cantidad × precio de sus ítems.
-- La receta de una venta, si tiene, es del mismo cliente.
-- Ningún lote tiene unidades negativas.
+### 6.2 Consultas 14 y 15: todo o nada entre dos motores
 
-Las validaciones corren por etapas: formato de cada fila, después vacíos y unicidad, después referencias y por último ventas y lotes. Cada etapa supone que la anterior pasó, así que si una falla se informan sus errores y no se sigue. Ejemplos reales de cargas rechazadas, con filas agregadas a propósito en `adicionales/`:
+No hay una transacción que abarque MongoDB y Redis. El todo o nada sale del **orden de las operaciones**, con una compensación para la única falla que queda después de descontar el stock:
 
-```text
-✘ Carga abortada; no se modificó ninguna base:
-  - adicionales/clientes.csv, línea 15: activo: booleano inválido 'Si'
-```
-
-```text
-✘ Carga abortada; no se modificó ninguna base:
-  - clientes: id_cliente C020 repetido
-  - clientes: dni 31245678 repetido
-```
-
-```text
-✘ Carga abortada; no se modificó ninguna base:
-  - farmaceuticos F019: id_sucursal S099 no existe en sucursales
-```
-
-**En los servicios de escritura** (q13, q14 y q15), para los datos nuevos: cada servicio valida que existan y estén activas las entidades que referencia, dentro de la misma transacción en la que escribe.
-
-**En el modelo:**
-- Los índices únicos de MongoDB garantizan DNI, matrícula e id de ítem únicos aun ante escrituras concurrentes.
-- El embebido elimina la referencia venta–ítem: un ítem no puede existir sin su venta.
-- Las bajas son lógicas, así que una referencia nunca queda apuntando a un documento borrado.
-
-### 6.2 Garantías de cada motor
-
-| Motor | Garantía | Dónde la usamos |
-|---|---|---|
-| MongoDB | Una escritura sobre un documento es atómica (Clase 13, p. 5). | Venta con sus ítems; ABM de clientes (q13). |
-| MongoDB | Transacciones de varios documentos con replica set. *Complemento (no está en las clases), ver el [manual](https://www.mongodb.com/docs/manual/core/transactions/).* | Carga; venta + receta en q14. |
-| MongoDB | Índices únicos. | DNI, matrícula, id de ítem. |
-| Redis | Un script Lua se ejecuta de forma atómica, sin atender a otro cliente en el medio (Clase 17, p. 31). | Descuento y reposición de stock (q14, q15). |
-| Redis | `MULTI` ejecuta los comandos juntos, pero no tiene rollback (Clase 17, p. 12; Clase 18, p. 7). | Solo en la carga, donde no hay que decidir según lo leído. |
-| Redis | AOF con fsync por segundo: se pierde a lo sumo un segundo ante una caída (Clase 17, pp. 17–21). | Durabilidad del stock. |
-
-No existe una transacción que abarque los dos motores.
-
-### 6.3 Consultas 14 y 15: todo o nada entre dos motores
-
-La consigna pide que, si el descuento de stock falla, no queden una venta ni una receta modificadas, y que el informe explique la estrategia según las garantías de cada motor (p. 7). Como no hay una transacción común, **el todo o nada sale del orden de las operaciones, con compensación solo para la última falla posible**:
-
-```mermaid
-sequenceDiagram
-    participant Q14 as q14
-    participant M as MongoDB
-    participant Q15 as q15
-    participant R as Redis
-    Q14->>M: start_transaction
-    Q14->>M: validar, insertar venta, actualizar receta (sin confirmar)
-    Q14->>Q15: ejecutar(id_venta, sesion)
-    Q15->>M: leer venta (dentro de la transacción)
-    Q15->>R: script descontar (FEFO, todo o nada)
-    alt stock insuficiente
-        R-->>Q14: rechazo, ningún lote tocado
-        Q14->>M: abort_transaction
-    else descontado
-        R-->>Q14: lotes descontados
-        Q14->>M: commit_transaction
-        opt la confirmación falla y la venta no quedó
-            Q14->>R: script reponer
-        end
-    end
-```
-
-| Dónde falla | Venta y receta | Stock |
-|---|---|---|
-| Validación | Transacción abortada | Sin tocar |
-| Stock insuficiente | Transacción abortada | Sin tocar: el script verifica todos los productos antes de escribir |
-| Error después del script, antes de confirmar | Transacción abortada | Repuesto con `reponer` |
-| Confirmación rechazada | No registradas | Repuesto con `reponer` |
-| Confirmación aplicada con error de red | Registradas | Descontado (correcto) |
-
-Si la confirmación falla, q14 primero mira si la venta quedó registrada, porque una confirmación con resultado incierto puede haberse aplicado. Solo compensa si no quedó.
-
-**Por qué Redis va segundo.** El rechazo más frecuente es la falta de stock. Con este orden se resuelve abortando la transacción de MongoDB, sin compensar. Si Redis fuera primero, cada rechazo de una validación de MongoDB obligaría a devolver stock.
-
-**Por qué un script Lua y no `MULTI`.** `MULTI` encola comandos sin poder decidir según lo que lee, así que no puede comprobar que alcance el stock antes de descontar, y no tiene rollback (Clase 17, p. 12; Clase 18, p. 7). El script verifica y descuenta en una sola operación atómica.
-
-**Por qué no `with_transaction` de pymongo.** Ante un error transitorio vuelve a ejecutar toda la función, y con ella el descuento en Redis. q14 maneja la transacción a mano y reintenta solo la parte de MongoDB, que es anterior al script.
-
-**Por qué q15 recibe el id de la venta.** La consigna presenta a q15 como un servicio propio que parte de "una venta registrada". q15 lee la venta de MongoDB, y con la sesión de q14 la ve antes de que se confirme.
-
-### 6.4 Una venta no se descuenta dos veces
-
-En la misma operación atómica en que descuenta, el script agrega la venta a `ventas:descontadas` y guarda en `descuento:{id_venta}` cuánto tomó de cada lote.
-
-- Rechaza una venta que ya figura como descontada: un reintento o una llamada manual a q15 no duplican el descuento.
-- Los lotes de los CSV ya reflejan las ventas históricas, así que la carga marca como descontadas las ventas "Completada" de los CSV. Sin eso, `q15 V003` descontaría de nuevo.
-- `descuento:{id_venta}` le dice a la compensación exactamente qué devolver.
-- La marca y el descuento se escriben juntos: no puede quedar uno sin el otro.
-
-### 6.5 Concurrencia
-
-| Recurso | Riesgo | Cómo se resuelve |
-|---|---|---|
-| Stock | Dos ventas descuentan las mismas unidades o dejan un lote negativo. | El script Lua es atómico: la segunda venta ve el stock que dejó la primera. |
-| Receta | Dos ventas usan la última dispensa de la misma receta. | La actualización filtra por `estado: "Vigente"` y por las `dispensas_realizadas` leídas. MongoDB aborta una de las dos transacciones por conflicto de escritura y q14 la reintenta desde cero; al volver a validar, la receta ya está "Completada". |
-| Ids de venta e ítem | Dos ventas eligen el mismo id. | Los ids salen de `contadores` con un `$inc` atómico fuera de la transacción. Calcular el máximo + 1 dentro de la transacción hacía que las ventas simultáneas eligieran el mismo id y chocaran una y otra vez: con 25 a la vez se agotaban los reintentos. A cambio, una venta rechazada por stock deja su número sin usar, como una secuencia de una base relacional. |
-| DNI (q13) | Dos altas con el mismo DNI. | Índice único: la segunda falla y se rechaza. |
-
-### 6.6 Reglas de negocio y supuestos
-
-| Tema | Decisión | Fundamento |
-|---|---|---|
-| Producto "Bajo receta archivada" | Exige una receta de tipo "Archivada". | La consigna no lo dice, pero los datos son coherentes: V009 vende PRD008 con RC005, que es Archivada. |
-| Receta sin productos | La receta no indica qué productos cubre, así que se valida cliente, estado, dispensas disponibles y tipo. | El CSV de recetas no tiene esa relación; no la inventamos. |
-| Venta con productos de venta libre y bajo receta | Se permite. La venta es "Con receta" si algún producto la exige; el tipo se deriva, no se recibe. | La receta cubre los productos que la necesitan; los de venta libre no la requieren. |
-| Receta informada sin producto que la exija | Se rechaza. | Consumiría una dispensa sin motivo. |
-| Unidad de dispensa | Una venta es una dispensa, aunque tenga varios productos bajo receta. | Así vienen los datos: `dispensas_realizadas` coincide con las ventas "Completada" de cada receta. |
-| Próxima dispensa | Fecha de la venta + 30 días. | Regla de la consigna (p. 5). RC002 no la cumple en los datos provistos (31 días); se carga como viene. |
-| Dispensa adelantada | No se bloquea una receta prolongada cuya próxima dispensa todavía no llegó. | La consigna enumera las validaciones de q14 y esta no está. |
-| Estado "Vencida" de una receta | Es un dato almacenado; no se calcula por fecha. | La consigna no da un plazo de validez. |
-| Precio | El de lista vigente al vender; no se recibe como parámetro. | Regla de precios (Consigna, p. 5). |
-| Sucursal de la venta | La del farmacéutico, copiada en `ventas.id_sucursal`. | Consigna, p. 6. |
-| Datos históricos | La carga no aplica las validaciones de alta de q14: V001 es de un farmacéutico hoy inactivo y V014 de un producto hoy discontinuado. | Eran válidas cuando se registraron. |
-| Validaciones extra | Cantidad entera mayor a 0; medio de pago entre los del CSV; "Obra social" solo para clientes con cobertura. | Evitan ventas sin sentido. |
-
-### 6.7 Pruebas
-
-Las fallas de infraestructura no se pueden provocar desde la terminal, así que las simulamos en Python reemplazando una función. Después de cada caso comparamos el estado completo (ventas, receta, unidades de todos los lotes y claves `descuento:*`) con el de antes.
-
-| Caso | Resultado |
+| Paso | Si falla |
 |---|---|
-| La confirmación de MongoDB falla después del script | Sin venta ni cambio en la receta; todos los lotes con sus unidades de antes. |
-| La confirmación se aplica pero la respuesta se pierde | Venta registrada y stock descontado; no se compensa. |
-| Falla entre el script y la confirmación | Transacción abortada y stock repuesto. |
-| 8 ventas simultáneas sobre la última dispensa de RC002 | Se registra una; las otras 7 se rechazan con "la receta RC002 no está vigente (Completada)". |
-| 25 ventas simultáneas de 10 unidades sobre un lote de 200 | Se registran 20 y el lote queda en 0, nunca en negativo; los 20 ids de venta y los 42 de ítem son únicos. |
-| 8 altas simultáneas de q13 | Con DNI distintos reciben ids distintos; con el mismo DNI queda registrada una sola. |
+| 1. MongoDB: transacción abierta; validar, insertar la venta y actualizar la receta sin confirmar | Se aborta. Redis no se tocó. |
+| 2. Redis: script `descontar`, todo o nada | Rechaza sin tocar ningún lote y se aborta la transacción. Es el caso de falta de stock. |
+| 3. MongoDB: confirmar | Si la venta no quedó registrada, el script `reponer` devuelve a cada lote lo anotado en `descuento:{id_venta}`. |
+
+- **Redis va segundo** porque así el rechazo más común, la falta de stock, se resuelve abortando, sin compensar.
+- **Un script Lua y no `MULTI`:** `MULTI` no puede decidir según lo que lee y no tiene rollback (Clase 17, p. 12; Clase 18, p. 7). El script verifica y descuenta sin que otro cliente se intercale (Clase 17, p. 31).
+- **Sin `with_transaction` de pymongo:** ante un error transitorio repetiría la función entera, Lua incluido. q14 reintenta solo el paso 1.
+- **Una venta no se descuenta dos veces:** el script la registra en `ventas:descontadas`, y la carga marca las ventas históricas, cuyo stock ya está en los lotes.
+
+### 6.3 Concurrencia
+
+| Riesgo | Solución |
+|---|---|
+| Dos ventas consumen las mismas unidades | El script es atómico: nunca queda stock negativo. |
+| Dos ventas usan la última dispensa | La receta se actualiza filtrando por las dispensas leídas. MongoDB aborta una por conflicto y q14 la reintenta, y al volver a validar se rechaza. |
+| Dos ventas toman el mismo id | Los ids salen de `contadores` con un `$inc` atómico, fuera de la transacción. |
+
+**Pruebas** (simulando las fallas en Python):
+- Falla la confirmación: no queda venta y el stock se repone.
+- La confirmación se aplica pero se pierde la respuesta: no se compensa.
+- 8 ventas simultáneas sobre la última dispensa: se registra una.
+- 25 ventas de 10 unidades sobre un lote de 200: se registran 20 y el lote queda en 0.
+
+### 6.4 Supuestos
+
+| Tema | Decisión |
+|---|---|
+| Producto "Bajo receta archivada" | Exige receta "Archivada", como en los datos (V009 vende PRD008 con RC005). |
+| Productos de la receta | El CSV no los indica, así que no se validan. |
+| Venta con productos libres y bajo receta | Se permite. El tipo de venta se deriva de los productos. |
+| Dispensa | Una por venta, como en los datos provistos. Se completa a los 30 días. |
+| Dispensa adelantada | No se bloquea: la consigna no la incluye entre las validaciones. |
+| Ventas históricas | La carga no les aplica las validaciones de q14 (V001 es de un farmacéutico hoy inactivo). |
 
 ## 7. Limitaciones, alternativas y conclusiones
 
 ### 7.1 Limitaciones
 
-- **Caída del proceso entre el script y la confirmación.** Si el proceso de q14 muere justo ahí, el stock queda descontado sin venta. El descuento queda registrado en `descuento:{id_venta}`, así que se detecta comparando `ventas:descontadas` con las ventas de MongoDB y se devuelve con `stock.reponer(id_venta)`. No lo automatizamos.
-- **Durabilidad de Redis.** Con fsync por segundo, una caída de Redis puede perder hasta un segundo de descuentos ya confirmados en MongoDB (Clase 17, p. 21). *Complemento (no está en las clases): `appendfsync always` lo evitaría a costa de un fsync por cada escritura.*
-- **Alta disponibilidad.** El replica set de un nodo habilita las transacciones, pero si se cae el nodo, se cae la base.
-- **Reglas que la consigna no define.** No validamos que una receta prolongada respete su próxima dispensa ni qué productos cubre una receta, y no modelamos descuentos de obra social: el precio del ítem es el de lista.
-- **Fecha de referencia.** Los datos se describen respecto del 13/10/2026, pero las consultas usan la fecha del sistema. Los resultados de las que dependen de "hoy" cambian según el día en que se ejecuten.
-- *Complemento (no está en las clases):* el script Lua lee los hashes `lote:{id}` sin declararlos como claves del script. Funciona en un Redis de un solo nodo, como el nuestro. En Redis Cluster habría que ubicar las claves de una sucursal en el mismo nodo con *hash tags*.
+- Si el proceso de q14 se cae entre el script y la confirmación, queda stock descontado sin venta. Se detecta con `descuento:*` y se devuelve con `stock.reponer`, pero no está automatizado.
+- Con fsync por segundo, una caída de Redis puede perder hasta un segundo de descuentos (Clase 17, p. 21).
+- El replica set de un nodo da transacciones, pero no alta disponibilidad.
+- Las consultas que dependen de "hoy" cambian según el día en que se ejecuten.
 
 ### 7.2 Alternativas evaluadas
 
-**Neo4j como núcleo + MongoDB para el catálogo.** Fue la segunda candidata y la más fuerte. Además, la cátedra cita como ejemplo un caso real de MongoDB + Neo4j (Clase I, p. 6).
-
-- **Diseño:** Neo4j guarda clientes, recetas, farmacéuticos, sucursales, ventas y lotes como un grafo; MongoDB guarda productos y proveedores.
-- **A favor:** 14 + 15 serían una sola transacción ACID de Neo4j, sin compensación (Clase 16, pp. 15–16). El historial (consultas 3 y 10) es un recorrido natural (Clase 16, p. 39).
-- **En contra:**
-  - Las ventas, jerárquicas y de alto volumen, quedarían en el motor que menos escala para eso (Clase 16, pp. 39–40).
-  - MongoDB quedaría solo con el catálogo, un rol difícil de justificar como necesario.
-  - Neo4j no tiene vistas, que pide la consulta 11.
-  - El producto quedaría duplicado entre los dos motores.
-  - Es más pesado de levantar y el grupo tiene menos práctica.
-
-**Tres motores** (el esquema del libro: sistema de registro + Neo4j + Redis; Seven Databases, pp. 289, 293). La descartamos porque la consigna pide dos como mínimo y cada motor extra suma costo de integración (Clase I, p. 6).
-
-**Cassandra o DynamoDB** en lugar de MongoDB: ver [1.3](#13-motores-evaluados).
-
-**Alternativas de implementación para 14 y 15:**
-
 | Alternativa | Por qué no |
 |---|---|
-| Stock en MongoDB, todo en una transacción | Evita la compensación, pero deja a Redis sin un rol que justifique el segundo motor, y el stock es justamente el dato de escrituras concurrentes en el que Redis es más fuerte. |
-| Descontar en Redis primero y después escribir en MongoDB | Cada rechazo de validación obligaría a compensar. |
-| `MULTI`/`WATCH` en lugar de un script Lua | `MULTI` no puede decidir según lo leído y no tiene rollback; `WATCH` obliga a reintentar ante cualquier cambio de los lotes. |
-| q15 recibe los ítems en lugar del id de la venta | Más simple, pero deja de partir de "una venta registrada". |
-| Ids por máximo + 1 | Ventas simultáneas chocan por el mismo id (ver [6.5](#65-concurrencia)). |
+| Neo4j como núcleo + MongoDB para el catálogo | 14 + 15 serían una transacción ACID (Clase 16, pp. 15–16). Pero las ventas, jerárquicas y de alto volumen, quedarían en el motor que menos escala (Clase 16, pp. 39–40), Neo4j no tiene vistas (q11) y MongoDB quedaría con un rol menor. |
+| Tres motores | Cada motor extra suma costo de integración (Clase I, p. 6). |
+| Stock en MongoDB | Evita compensar, pero deja a Redis sin un rol que justifique el segundo motor. |
+| Descontar en Redis primero | Cada rechazo de validación obligaría a compensar. |
+| Ids calculados como máximo + 1 | Con 25 ventas simultáneas chocaban hasta agotar los reintentos. |
 
 ### 7.3 Conclusiones
 
@@ -1749,18 +362,4 @@ Las fallas de infraestructura no se pueden provocar desde la terminal, así que 
 
 ## 8. Fuentes
 
-| Cita | Material |
-|---|---|
-| Consigna | Cátedra de Bases de Datos II, *TPO FarmaRed*, 2.º cuatrimestre de 2026 |
-| Clase I | BDD II - Clase I (persistencia políglota y Docker) |
-| Clase 12 | BD2_Clase 12 - Introducción a NoSQL |
-| Clase 13 | BD2_Clase 13 - NoSQL - Embebidos vs. normalizado |
-| Clase 15 | BD2_Clase 15 - Introducción a Cassandra |
-| Clase 16 | BD2_Clase 16 - Neo4j |
-| Anexo Neo4j | Neo4j_anexo (MERGE, Causal Clustering y Raft) |
-| Clase 17 | BD2_Clase 17 - Bases de clave-valor (generalidades) |
-| Clase 18 | BD2_Clase 18 - Bases de clave-valor (hands-on) |
-| Clase 20 | BD2_Clase 20 - Amazon DynamoDB |
-| Seven Databases | Perkins, Redmond y Wilson, *Seven Databases in Seven Weeks*, 2.ª ed. |
-
-Lo marcado como *Complemento* no está en el material de la cátedra y remite a la documentación oficial del motor.
+Clase I (persistencia políglota y Docker), Clase 12 (introducción a NoSQL), Clase 13 (embebidos vs. normalizado), Clase 15 (Cassandra), Clase 16 (Neo4j), Clase 17 y 18 (bases clave-valor), Clase 20 (DynamoDB) y la consigna del TPO. Lo marcado como *complemento* no está en el material de la cátedra.
