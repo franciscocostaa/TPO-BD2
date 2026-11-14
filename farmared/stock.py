@@ -1,4 +1,4 @@
-"""Stock por lote en Redis (ver `docs/modelo.md`).
+"""Stock por lote en Redis (ver `docs/informe.md`, sección 2).
 
 Claves:
 

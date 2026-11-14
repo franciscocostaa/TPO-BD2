@@ -183,7 +183,7 @@ def ultimo_numero(ids) -> int:
 
 
 def documentos(tablas: dict[str, list[dict]]) -> dict[str, list[dict]]:
-    """Documentos de cada colección de MongoDB según `docs/modelo.md`."""
+    """Documentos de cada colección de MongoDB según `docs/informe.md`, sección 2."""
     docs = {
         nombre: [con_id(fila, ARCHIVOS[nombre]) for fila in tablas[nombre]]
         for nombre in ("clientes", "sucursales", "farmaceuticos", "proveedores", "productos", "recetas")

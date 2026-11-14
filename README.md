@@ -44,7 +44,7 @@ redis-cli -h redis        # Redis
 python -m farmared.carga
 ```
 
-Carga los CSV de `datos/provistos/` y `datos/adicionales/` en MongoDB y en Redis. Se puede correr cuantas veces se quiera: cada vez deja exactamente el estado de los CSV y descarta lo que hayan cambiado los servicios de escritura. Si los datos tienen un error, por ejemplo una referencia a un id inexistente, lo informa y no modifica ninguna base. Detalle en [`docs/informe/carga.md`](docs/informe/carga.md).
+Carga los CSV de `datos/provistos/` y `datos/adicionales/` en MongoDB y en Redis. Se puede correr cuantas veces se quiera: cada vez deja exactamente el estado de los CSV y descarta lo que hayan cambiado los servicios de escritura. Si los datos tienen un error, por ejemplo una referencia a un id inexistente, lo informa y no modifica ninguna base. Detalle en la sección 4 de [`docs/informe.md`](docs/informe.md).
 
 Los datos persisten en volúmenes de Docker entre reinicios. Para vaciar las bases por completo:
 
@@ -82,14 +82,14 @@ python -m farmared.consultas.qNN [argumentos]
 | Parte | Estado |
 |---|---|
 | Datasets provistos | En [`datos/provistos/`](datos/provistos/) |
-| Elección de motores y justificación | Propuesta en [`docs/arquitectura.md`](docs/arquitectura.md) |
+| Elección de motores y justificación | Sección 1 de [`docs/informe.md`](docs/informe.md) |
 | División del trabajo | Propuesta en [`docs/division.md`](docs/division.md) |
-| Modelo de datos | Borrador en [`docs/modelo.md`](docs/modelo.md) |
+| Modelo de datos | Sección 2 de [`docs/informe.md`](docs/informe.md), con diagramas |
 | Entorno en Codespaces | Listo |
 | Script de carga | Listo |
 | Registros adicionales (≥ 10 por colección/tabla) | Clientes, sucursales, farmacéuticos, proveedores, productos, lotes y recetas listos; faltan ventas y detalle |
 | Consultas | q01, q02, q03, q06, q08, q09, q13, q14 y q15 listas; faltan q04, q05, q07, q10, q11 y q12 |
-| Informe PDF | Secciones de entorno, carga, q01, q02, q03, q06, q08, q09, q13 y q14–q15 en [`docs/informe/`](docs/informe/) |
+| Informe | [`docs/informe.md`](docs/informe.md): faltan las consultas 4, 5, 7 y 10–12, las ventas adicionales, la carátula y las conclusiones |
 
 ## Estructura
 
@@ -109,8 +109,9 @@ farmared/
 datos/
   provistos/        CSV entregados por la cátedra, sin modificar
   adicionales/      registros propios del equipo, mismo formato
-docs/               arquitectura, división del trabajo y modelo de datos
-  informe/          secciones del informe PDF
+docs/
+  informe.md        informe del TPO (arquitectura, modelo, carga, consultas, consistencia)
+  division.md       división del trabajo y dudas para la cátedra
 ```
 
 ## Datos

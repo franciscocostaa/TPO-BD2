@@ -1,4 +1,4 @@
-"""Fecha de hoy y conversión de fechas para las consultas (ver `docs/modelo.md`).
+"""Fecha de hoy y conversión de fechas para las consultas (ver `docs/informe.md`, sección 2).
 
 La carga guarda cada fecha del CSV como `Date` de MongoDB a las 00:00 UTC de
 ese día. Para comparar con "hoy", la fecha de hoy se convierte de la misma
