@@ -20,8 +20,9 @@ El script (`farmared/carga.py`) parte de los CSV de la cátedra (`datos/provisto
    - Las filas de `detalle_ventas` se agrupan como `items` embebidos en su venta.
    - Cada venta recibe `id_sucursal`, la sucursal de su farmacéutico.
    - `stock_lotes` va a Redis.
+   - La colección `contadores` guarda el último id de ventas y de ítems, para que q14 siga la serie.
 4. **MongoDB.** Crea los índices (únicos en `clientes.dni` y `farmaceuticos.matricula`, y los que usan las consultas). Después, en **una sola transacción**, vacía cada colección con `delete_many` y la vuelve a llenar con `insert_many`.
-5. **Redis.** En **un solo `MULTI`**, borra las claves de stock anteriores (`lote:*`, `stock:*`, `lotes:unidades`) y escribe cada lote en sus tres claves (`farmared/stock.py`).
+5. **Redis.** En **un solo `MULTI`**, borra las claves de stock anteriores (`lote:*`, `stock:*`, `lotes:unidades`, `ventas:descontadas`, `descuento:*`) y escribe cada lote en sus tres claves (`farmared/stock.py`). Además marca como descontadas las ventas "Completada" de los CSV, porque los lotes ya reflejan su stock: así q15 no las descuenta de nuevo.
 
 Salida con los datos actuales:
 
@@ -31,7 +32,7 @@ Salida con los datos actuales:
 ✔ farmaceuticos: 7 provistos + 11 adicionales → MongoDB farmaceuticos
 ✔ proveedores: 5 provistos + 10 adicionales → MongoDB proveedores
 ✔ productos: 13 provistos + 12 adicionales → MongoDB productos
-✔ recetas: 9 provistos + 0 adicionales → MongoDB recetas
+✔ recetas: 9 provistos + 10 adicionales → MongoDB recetas
 ✔ ventas: 16 provistos + 0 adicionales → MongoDB ventas
 ✔ detalle_ventas: 22 provistos + 0 adicionales → MongoDB ventas.items
 ✔ stock_lotes: 18 provistos + 16 adicionales → Redis
@@ -147,6 +148,19 @@ Las fechas "por vencer" y "vencido" se eligieron respecto de noviembre de 2026.
 | Stock central en la droguería | L032 (1800 u.) | q15 (la droguería no vende: sus lotes no se tocan) |
 | Lotes en farmacias adicionales | L027 (S006), L028 (S008), L029 (S007), L030 (S012), L031 (S010) | q08 |
 
-### Recetas y ventas
+### Recetas (RC010–RC019, 10 registros)
 
-*Pendiente: las agregan los integrantes 3 y 4 (ver `docs/division.md`).*
+Todas sin dispensas realizadas: así no hace falta inventar ventas históricas que las respalden, y `dispensas_realizadas` sigue coincidiendo con las ventas "Completada" de cada receta.
+
+| Caso | Registros | Ejercita |
+|---|---|---|
+| Simple vigente | RC010 (C009), RC014 (C014), RC018 (C012, sin cobertura) | q14 (venta exitosa; receta de otro cliente; obra social sin cobertura) |
+| Archivada vigente | RC011 (C010) | q14 + q15 (PRD017 solo tiene un lote vencido en S001: rechazo por stock) |
+| Tratamiento prolongado sin dispensas | RC012 (C011, 3 autorizadas), RC015 (C017, 6 autorizadas) | q14 (la primera dispensa fija la próxima a 30 días) |
+| Vencidas | RC013 (C013, simple), RC017 (C019, archivada) | q14 (rechazo por receta no vigente), q03 |
+| Simple vigente para un producto archivado | RC016 (C018) | q14 (rechazo: el producto exige receta archivada) |
+| Vigente de un cliente dado de baja | RC019 (C016) | q14 (rechazo por cliente inactivo) |
+
+### Ventas
+
+*Pendiente: las agrega el integrante 3 (ver `docs/division.md`).*

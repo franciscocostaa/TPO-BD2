@@ -17,5 +17,5 @@ Secciones del informe PDF (consigna §5.2), una por archivo. Al final se arman e
 | Consulta 9 | [`q09.md`](q09.md) | Integrante 2 | Listo |
 | Consultas 4, 5, 7 y 10–12 | | Integrante 3 | Pendiente |
 | Consulta 13 | [`q13.md`](q13.md) | Integrante 1 | Listo |
-| Consultas 14 y 15, consistencia e integridad | | Integrante 4 | Pendiente |
+| Consultas 14 y 15, consistencia e integridad | [`q14-q15.md`](q14-q15.md) | Integrante 4 | Listo |
 | Limitaciones, alternativas y conclusiones | | Todos | Pendiente |

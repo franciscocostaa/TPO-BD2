@@ -18,7 +18,7 @@ Propuesta del integrante 1 para cerrar en la fase 0. Arquitectura: MongoDB como 
 
 ## MongoDB (base `farmared`)
 
-Siete colecciones. No hay colección de lotes: el stock vive solo en Redis.
+Siete colecciones de datos más `contadores`. No hay colección de lotes: el stock vive solo en Redis.
 
 ### `clientes`
 
@@ -102,8 +102,17 @@ Siete colecciones. No hay colección de lotes: el stock vive solo en Redis.
 - `items` embebidos: es una relación "contiene" y siempre se leen y escriben con la venta. Insertar una venta con sus ítems es una sola operación atómica (Clase 13).
 - `precio_unit` del ítem es el precio al momento de la venta (puede diferir del de lista).
 - `id_sucursal` es la sucursal donde ocurrió la venta, copiada del farmacéutico al registrarla. q15 la usa para saber de qué lotes descontar. La q10 sigue pasando por el farmacéutico, como pide la consigna.
-- Índices: `{ id_cliente, fecha }`, `{ id_farmaceutico, fecha }`, `{ fecha }`, `{ estado }`.
+- Índices: `{ id_cliente, fecha }`, `{ id_farmaceutico, fecha }`, `{ fecha }`, `{ estado }` y **único** en `items.id_detalle`.
 - Consultas: 2, 3, 5, 7, 9, 10, 11, 12, 14, 15.
+
+### `contadores`
+
+```js
+{ _id: "ventas", ultimo: 16 }
+{ _id: "detalle_ventas", ultimo: 22 }
+```
+
+- Último número usado de cada serie de ids. La carga lo calcula de los CSV; q14 lo incrementa con un `$inc` atómico fuera de su transacción, así que dos ventas simultáneas no compiten por el mismo id (ver `informe/q14-q15.md`).
 
 ### Vista
 
@@ -116,6 +125,8 @@ Siete colecciones. No hay colección de lotes: el stock vive solo en Redis.
 | `lote:{id_lote}` | Hash | `id_producto`, `id_sucursal`, `nro_lote`, `unidades`, `vencimiento` (ISO) |
 | `stock:{id_sucursal}:{id_producto}` | Sorted set | miembro `id_lote`, score = vencimiento como `AAAAMMDD` |
 | `lotes:unidades` | Sorted set | miembro `id_lote`, score = unidades |
+| `ventas:descontadas` | Set | ventas cuyo stock ya se descontó (la carga agrega las "Completada" de los CSV) |
+| `descuento:{id_venta}` | Hash | `id_lote` → unidades descontadas de ese lote para la venta |
 
 ```text
 HSET lote:L005 id_producto PRD003 id_sucursal S001 nro_lote L-2506A unidades 40 vencimiento 2026-11-30
@@ -130,9 +141,10 @@ ZRANGEBYSCORE lotes:unidades -inf (50
 ```
 
 **Invariantes:**
-- Cada cambio de `unidades` actualiza el hash y `lotes:unidades` en la misma operación atómica (script Lua o `MULTI`).
+- Las unidades solo cambian en los scripts Lua `descontar` y `reponer` (`farmared/stock.py`), que actualizan el hash y `lotes:unidades` en la misma operación atómica. La carga escribe todo en un `MULTI`.
 - Los lotes con 0 unidades no se borran (baja lógica): quedan en los sorted sets y el script los saltea.
-- Las unidades nunca quedan negativas: lo garantiza el script de q15, que descuenta solo si alcanzan todos los ítems.
+- Las unidades nunca quedan negativas: `descontar` solo escribe si alcanzan todos los productos.
+- Una venta se descuenta una sola vez: `descontar` la agrega a `ventas:descontadas` y guarda `descuento:{id_venta}` en la misma operación.
 
 ## Consultas por colección y clave
 
@@ -151,8 +163,8 @@ ZRANGEBYSCORE lotes:unidades -inf (50
 | 11 | vista `ingresos_farmaceutico_mes` | |
 | 12 | clientes, ventas | |
 | 13 | clientes | |
-| 14 | clientes, farmaceuticos, sucursales, productos, recetas, ventas | (vía q15) |
-| 15 | ventas, farmaceuticos | `stock:*`, `lote:*`, `lotes:unidades` |
+| 14 | clientes, farmaceuticos, sucursales, productos, recetas, ventas, contadores | (vía q15) y `descuento:*` para compensar |
+| 15 | ventas | `stock:*`, `lote:*`, `lotes:unidades`, `ventas:descontadas`, `descuento:*` |
 
 ## Carga
 
@@ -160,10 +172,11 @@ ZRANGEBYSCORE lotes:unidades -inf (50
 - **Transformación:**
   - `detalle_ventas` se agrupa en `ventas.items` por `id_venta`.
   - `ventas.id_sucursal` se completa con la sucursal del farmacéutico.
-  - `stock_lotes` va a Redis.
+  - `stock_lotes` va a Redis, y las ventas "Completada" se marcan en `ventas:descontadas` porque los lotes ya reflejan su stock.
+  - `contadores` toma el último id de ventas y de ítems.
 - **Idempotencia:**
   - MongoDB: se crean los índices y, en una única transacción, cada colección se vacía (`delete_many`) y se vuelve a llenar (`insert_many`). Las vistas no se tocan.
-  - Redis: en un único `MULTI`, se borran `lote:*`, `stock:*` y `lotes:unidades` y se escriben los lotes de nuevo.
+  - Redis: en un único `MULTI`, se borran `lote:*`, `stock:*`, `lotes:unidades`, `ventas:descontadas` y `descuento:*` y se escriben de nuevo.
   - Volver a cargar deja exactamente el estado inicial de los CSV y descarta los cambios hechos por las consultas de escritura, incluidos los documentos que agregaron.
 - **Integridad referencial:** antes de escribir, la carga valida los datos combinados y, si encuentra errores, los informa todos y no modifica ninguna base:
   - Solo pueden estar vacíos `nro_afiliado`, `proxima_dispensa` e `id_receta`.
@@ -178,6 +191,6 @@ ZRANGEBYSCORE lotes:unidades -inf (50
 
 1. Aprobar o ajustar este modelo.
 2. **Consulta 12:** ¿una venta "Pendiente" o "Anulada" cuenta como "venta registrada"? (también para preguntar a la cátedra).
-3. **Dispensas:** proponemos que una venta con varios productos bajo receta cuente como **una** dispensa, que es como vienen los datos provistos.
-4. **Recetas sin productos:** la receta no dice qué productos cubre, así que q14 solo valida que sea del cliente y esté vigente.
-5. Quién toma cada parte (integrantes 2, 3 y 4).
+3. Quién toma cada parte (integrantes 2, 3 y 4).
+
+Las dudas sobre dispensas y recetas quedaron resueltas en `informe/q14-q15.md` (una venta es una dispensa; la receta no indica productos, así que se valida cliente, estado y tipo).

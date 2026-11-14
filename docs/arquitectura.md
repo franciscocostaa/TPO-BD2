@@ -87,13 +87,13 @@ No hay transacciones entre motores distintos, así que el todo o nada se garanti
 3. **Descontar stock en Redis** con el script Lua: FEFO, sin lotes vencidos, todos los ítems o ninguno.
 4. **Si Redis rechaza** (stock insuficiente) → abortar la transacción de MongoDB. No queda nada escrito y no hace falta compensar. Es el caso de rechazo que muestra el informe.
 5. **Si Redis acepta** → confirmar la transacción de MongoDB.
-6. **Si esa confirmación falla** → compensar en Redis devolviendo las unidades descontadas.
+6. **Si esa confirmación falla y la venta no quedó registrada** → compensar en Redis devolviendo las unidades descontadas.
 
 El caso frecuente (falta de stock) se resuelve sin compensación. La compensación queda solo para una falla de MongoDB justo después de descontar.
 
 > Complemento (no está en las clases): MongoDB soporta transacciones de varios documentos, pero solo si corre como *replica set*. En Docker alcanza con un replica set de un solo nodo. Ver [manual de transacciones](https://www.mongodb.com/docs/manual/core/transactions/).
 
-**Limitación declarada:** si el proceso se cae entre el paso 5 y el 6, el stock puede quedar descontado sin venta. Lo documentamos en "Limitaciones" del informe.
+**Limitación declarada:** si el proceso se cae entre el paso 3 y el 5, el stock puede quedar descontado sin venta. El detalle de la implementación, las decisiones y las limitaciones están en [`informe/q14-q15.md`](informe/q14-q15.md).
 
 ## 6. Alternativa evaluada: Neo4j como núcleo + MongoDB para el catálogo
 

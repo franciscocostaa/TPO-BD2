@@ -74,6 +74,8 @@ python -m farmared.consultas.qNN [argumentos]
 | 13 | ABM de clientes | `python -m farmared.consultas.q13 alta --nombre Ana --apellido Paz --dni 40111222 --email ana.paz@example.com --telefono 1140001111 --ciudad "Buenos Aires" --provincia "Buenos Aires" --obra-social OSDE --nro-afiliado OS-500100` |
 | | | `python -m farmared.consultas.q13 modificar C021 --telefono 1140002222 --obra-social "Sin cobertura" --nro-afiliado ""` |
 | | | `python -m farmared.consultas.q13 baja C021` |
+| 14 | Registro de una venta "Completada" (descuenta stock con q15) | `python -m farmared.consultas.q14 --cliente C011 --farmaceutico F001 --item PRD003:20 --item PRD001:35 --medio-pago "Obra social" --receta RC012` |
+| 15 | Descuento de stock FEFO de una venta registrada | `python -m farmared.consultas.q15 V017` (opcional: `--hoy 2026-11-14`) |
 
 ## Estado
 
@@ -85,9 +87,9 @@ python -m farmared.consultas.qNN [argumentos]
 | Modelo de datos | Borrador en [`docs/modelo.md`](docs/modelo.md) |
 | Entorno en Codespaces | Listo |
 | Script de carga | Listo |
-| Registros adicionales (≥ 10 por colección/tabla) | Clientes, sucursales, farmacéuticos, proveedores, productos y lotes listos; faltan recetas, ventas y detalle |
-| Consultas | q01, q02, q03, q06, q08, q09 y q13 listas; faltan q04, q05, q07, q10, q11, q12, q14 y q15 |
-| Informe PDF | Secciones de entorno, carga, q01, q02, q03, q06, q08, q09 y q13 en [`docs/informe/`](docs/informe/) |
+| Registros adicionales (≥ 10 por colección/tabla) | Clientes, sucursales, farmacéuticos, proveedores, productos, lotes y recetas listos; faltan ventas y detalle |
+| Consultas | q01, q02, q03, q06, q08, q09, q13, q14 y q15 listas; faltan q04, q05, q07, q10, q11 y q12 |
+| Informe PDF | Secciones de entorno, carga, q01, q02, q03, q06, q08, q09, q13 y q14–q15 en [`docs/informe/`](docs/informe/) |
 
 ## Estructura
 
@@ -99,7 +101,7 @@ farmared/
   conexiones.py     get_mongo(), get_mongo_client() y get_redis()
   verificar.py      chequeo del entorno
   carga.py          carga idempotente de los CSV
-  stock.py          claves del stock en Redis
+  stock.py          claves del stock en Redis y scripts Lua de descuento y reposición
   errores.py        ErrorDeValidacion, para los servicios de escritura
   salida.py         impresión de resultados como JSON
   fechas.py         "hoy" y conversión a fecha de MongoDB
