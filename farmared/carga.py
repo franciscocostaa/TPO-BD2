@@ -8,11 +8,13 @@ servicios de escritura.
 
 - MongoDB: índices y, en una única transacción, `delete_many` + `insert_many`
   de cada colección. Si algo falla, no queda una carga a medias.
-- Redis: en un único `MULTI`, se borran las claves de stock anteriores y se
-  escriben los lotes (ver `farmared/stock.py`).
+- Redis: en un único `MULTI`, se borran las claves de stock anteriores, se
+  escriben los lotes y se marcan como descontadas las ventas "Completada" de
+  los CSV, cuyo stock ya está reflejado en los lotes (ver `farmared/stock.py`).
 """
 
 import csv
+import re
 import sys
 from collections import Counter, defaultdict
 from datetime import datetime
@@ -78,6 +80,7 @@ INDICES = {
         ([("id_farmaceutico", ASCENDING), ("fecha", ASCENDING)], {}),
         ([("fecha", ASCENDING)], {}),
         ([("estado", ASCENDING)], {}),
+        ([("items.id_detalle", ASCENDING)], {"unique": True}),
     ],
 }
 
@@ -174,8 +177,13 @@ def con_id(fila: dict, campo_id: str) -> dict:
     return {"_id": fila[campo_id], **{campo: valor for campo, valor in fila.items() if campo != campo_id}}
 
 
+def ultimo_numero(ids) -> int:
+    """Mayor número de una serie de ids como `V016` o `D022`."""
+    return max((int(re.fullmatch(r"[A-Z]+(\d+)", i)[1]) for i in ids), default=0)
+
+
 def documentos(tablas: dict[str, list[dict]]) -> dict[str, list[dict]]:
-    """Documentos de cada colección de MongoDB según `docs/modelo.md`."""
+    """Documentos de cada colección de MongoDB según `docs/informe.md`, sección 2."""
     docs = {
         nombre: [con_id(fila, ARCHIVOS[nombre]) for fila in tablas[nombre]]
         for nombre in ("clientes", "sucursales", "farmaceuticos", "proveedores", "productos", "recetas")
@@ -205,6 +213,11 @@ def documentos(tablas: dict[str, list[dict]]) -> dict[str, list[dict]]:
         }
         for v in tablas["ventas"]
     ]
+    # Último id usado de cada serie; q14 los incrementa al registrar ventas.
+    docs["contadores"] = [
+        {"_id": archivo, "ultimo": ultimo_numero(fila[ARCHIVOS[archivo]] for fila in tablas[archivo])}
+        for archivo in ("ventas", "detalle_ventas")
+    ]
     return docs
 
 
@@ -223,16 +236,20 @@ def cargar_mongo(docs: dict[str, list[dict]]) -> None:
         sesion.with_transaction(reemplazar)
 
 
-def cargar_redis(lotes: list[dict]) -> None:
+def cargar_redis(lotes: list[dict], ventas: list[dict]) -> None:
     r = get_redis()
-    anteriores = [*r.scan_iter(match="lote:*"), *r.scan_iter(match="stock:*")]
+    anteriores = [*r.scan_iter(match="lote:*"), *r.scan_iter(match="stock:*"),
+                  *r.scan_iter(match="descuento:*")]
+    completadas = [v["id_venta"] for v in ventas if v["estado"] == "Completada"]
     with r.pipeline(transaction=True) as pipe:
-        pipe.delete(stock.LOTES_UNIDADES, *anteriores)
+        pipe.delete(stock.LOTES_UNIDADES, stock.VENTAS_DESCONTADAS, *anteriores)
         for lote in lotes:
             stock.escribir_lote(
                 pipe, lote["id_lote"], lote["id_producto"], lote["id_sucursal"],
                 lote["nro_lote"], lote["unidades"], lote["vencimiento"].date(),
             )
+        if completadas:
+            pipe.sadd(stock.VENTAS_DESCONTADAS, *completadas)
         pipe.execute()
 
 
@@ -249,7 +266,7 @@ def main() -> int:
         return 1
 
     cargar_mongo(documentos(tablas))
-    cargar_redis(tablas["stock_lotes"])
+    cargar_redis(tablas["stock_lotes"], tablas["ventas"])
 
     destinos = {"detalle_ventas": "MongoDB ventas.items", "stock_lotes": "Redis"}
     for archivo, filas in por_origen.items():

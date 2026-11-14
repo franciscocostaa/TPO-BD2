@@ -1,0 +1,11 @@
+id_receta,id_cliente,medico,matricula_medico,fecha_emision,tipo,dispensas_autorizadas,dispensas_realizadas,proxima_dispensa,estado
+RC010,C009,Dra. Carolina Paz,MP-48120,2026-11-03,Simple,1,0,,Vigente
+RC011,C010,Dr. Martín Lagos,MP-51402,2026-11-05,Archivada,1,0,,Vigente
+RC012,C011,Dra. Beatriz Quintana,MP-33914,2026-11-01,Tratamiento prolongado,3,0,,Vigente
+RC013,C013,Dr. Hernán Suárez,MP-46277,2026-04-20,Simple,1,0,,Vencida
+RC014,C014,Dra. Carolina Paz,MP-48120,2026-11-06,Simple,1,0,,Vigente
+RC015,C017,Dr. Sergio Ponce,MP-40588,2026-10-28,Tratamiento prolongado,6,0,,Vigente
+RC016,C018,Dra. Julieta Aranda,MP-52960,2026-11-02,Simple,1,0,,Vigente
+RC017,C019,Dr. Martín Lagos,MP-51402,2026-05-12,Archivada,1,0,,Vencida
+RC018,C012,Dr. Hernán Suárez,MP-46277,2026-11-04,Simple,1,0,,Vigente
+RC019,C016,Dra. Beatriz Quintana,MP-33914,2026-10-30,Simple,1,0,,Vigente

@@ -1,6 +1,8 @@
 # División del TPO FarmaRed
 
-Arquitectura: MongoDB + Redis con Python (ver `arquitectura.md`).
+Arquitectura: MongoDB + Redis con Python (ver `informe.md`, sección 1).
+
+El informe es un único archivo, [`informe.md`](informe.md), con la estructura que pide la consigna (§5.2). Cada uno escribe su parte en la sección que le corresponde.
 
 ## Criterio
 
@@ -66,3 +68,10 @@ Una reunión. Lo que salga queda escrito en `docs/` y nadie lo cambia sin avisar
 | 2 — Lecturas | |
 | 3 — Agregaciones y fechas | |
 | 4 — Escritura y consistencia | |
+
+## Para consultar con la cátedra
+
+- La portada dice grupos de **4**, pero los entregables hablan de "los **tres** integrantes".
+- **Consulta 12:** ¿una venta "Pendiente" o "Anulada" cuenta como "venta registrada"?
+- **Recetas:** el CSV no dice qué productos cubre cada una. q14 valida cliente, estado, dispensas disponibles y, para productos archivados, que la receta sea archivada.
+- **Dispensas:** una venta con varios productos bajo receta, ¿cuenta como una dispensa o como varias? Tomamos una por venta, como los datos provistos.
