@@ -30,7 +30,8 @@ compiten por el mismo id. Una venta rechazada por stock deja su número sin usar
 Reglas:
 - Cliente existente y activo. Con medio de pago "Obra social", el cliente tiene
   que tener cobertura.
-- Farmacéutico existente y activo, de una sucursal de tipo "Farmacia".
+- Farmacéutico existente y activo, de una sucursal de tipo "Farmacia" y
+  habilitada (`activo: true`).
 - Productos existentes y activos, con cantidad entera mayor a 0. El precio de
   cada ítem es el precio de lista vigente y el total es la suma de los ítems.
 - Si algún producto es "Bajo receta" o "Bajo receta archivada", hace falta una
@@ -169,6 +170,8 @@ def _registrar(id_cliente: str, id_farmaceutico: str, items: list[tuple[str, int
     sucursal = _buscar("sucursales", farmaceutico["id_sucursal"], "la sucursal", sesion)
     if sucursal["tipo"] != "Farmacia":
         raise ErrorDeValidacion(f"{sucursal['_id']} ({sucursal['nombre']}) es {sucursal['tipo']}: solo se vende en farmacias")
+    if not sucursal["activo"]:
+        raise ErrorDeValidacion(f"{sucursal['_id']} ({sucursal['nombre']}) no está habilitada: no puede registrar ventas")
 
     ids_productos = {id_producto for id_producto, _ in items}
     productos = {p["_id"]: p for p in db.productos.find({"_id": {"$in": sorted(ids_productos)}}, session=sesion)}
