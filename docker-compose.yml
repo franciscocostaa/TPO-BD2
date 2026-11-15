@@ -46,7 +46,10 @@ services:
 
   redis:
     image: redis:7.4
-    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    # El stock vive solo en Redis. Con `always`, Redis responde a cada escritura
+    # recién después de pasarla a disco: q14 nunca confirma en MongoDB una venta
+    # cuyo descuento de stock podría perderse.
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "always"]
     volumes:
       - redis-data:/data
     healthcheck:

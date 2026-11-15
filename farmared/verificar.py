@@ -42,10 +42,14 @@ def redis_ping() -> str:
 
 
 def redis_aof() -> str:
-    valor = get_redis().config_get("appendonly")["appendonly"]
-    if valor != "yes":
-        raise RuntimeError(f"appendonly = {valor}")
-    return "appendonly = yes"
+    """El stock vive solo en Redis: cada descuento tiene que estar en disco
+    antes de que q14 confirme la venta en MongoDB."""
+    config = get_redis().config_get("append*")
+    if config.get("appendonly") != "yes":
+        raise RuntimeError(f"appendonly = {config.get('appendonly')}")
+    if config.get("appendfsync") != "always":
+        raise RuntimeError(f"appendfsync = {config.get('appendfsync')}; se espera always")
+    return "appendonly = yes, appendfsync = always"
 
 
 def redis_lua() -> str:
