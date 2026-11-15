@@ -7,7 +7,8 @@ deja exactamente el estado de los CSV y descarta los cambios hechos por los
 servicios de escritura.
 
 - MongoDB: índices y, en una única transacción, `delete_many` + `insert_many`
-  de cada colección. Si algo falla, no queda una carga a medias.
+  de cada colección. Si algo falla, no queda una carga a medias. Después crea
+  o actualiza la vista de q11, que no guarda datos.
 - Redis: en un único `MULTI`, se borran las claves de stock anteriores, se
   escriben los lotes y se marcan como descontadas las ventas "Completada" de
   los CSV, cuyo stock ya está reflejado en los lotes (ver `farmared/stock.py`).
@@ -24,6 +25,7 @@ from pymongo import ASCENDING
 
 from farmared import stock
 from farmared.conexiones import get_mongo, get_mongo_client, get_redis
+from farmared.consultas import q11
 
 DATOS = Path(__file__).resolve().parent.parent / "datos"
 PROVISTOS = DATOS / "provistos"
@@ -234,6 +236,8 @@ def cargar_mongo(docs: dict[str, list[dict]]) -> None:
 
     with get_mongo_client().start_session() as sesion:
         sesion.with_transaction(reemplazar)
+    # La vista es parte del modelo: se crea con la carga, no recién al correr q11.
+    q11.crear_vista(recrear=True)
 
 
 def cargar_redis(lotes: list[dict], ventas: list[dict]) -> None:
@@ -272,6 +276,7 @@ def main() -> int:
     for archivo, filas in por_origen.items():
         destino = destinos.get(archivo, f"MongoDB {archivo}")
         print(f"✔ {archivo}: {len(filas['provistos'])} provistos + {len(filas['adicionales'])} adicionales → {destino}")
+    print(f"✔ vista {q11.VISTA} → MongoDB")
     return 0
 
 

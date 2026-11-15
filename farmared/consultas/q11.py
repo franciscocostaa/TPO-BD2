@@ -19,6 +19,9 @@ la vista toma el año y el mes de `$$NOW` en `fechas.ZONA_HORARIA` y arma el
 día 1 a las 00:00 UTC, que es como la carga guarda cada fecha. Así el mes
 cambia a la medianoche argentina y no a las 21:00 del día anterior.
 
+La carga crea (o actualiza) la vista, así que existe en la base aunque nadie
+haya corrido q11; `ejecutar` igual la crea si falta.
+
 Para las pruebas, `ejecutar(hoy=...)` no usa la vista: corre el mismo pipeline
 con el mes fijo, de modo que el resultado sea reproducible. Las dos variantes
 comparten las etapas de agregación, así que no pueden quedar desalineadas.
