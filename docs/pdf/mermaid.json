@@ -1,0 +1,7 @@
+{
+  "theme": "neutral",
+  "fontFamily": "DejaVu Sans, sans-serif",
+  "flowchart": { "htmlLabels": true, "curve": "basis", "wrappingWidth": 400 },
+  "er": { "fontSize": 14 },
+  "sequence": { "mirrorActors": false, "actorFontSize": 16, "messageFontSize": 16, "noteFontSize": 15, "width": 130, "actorMargin": 40 }
+}
