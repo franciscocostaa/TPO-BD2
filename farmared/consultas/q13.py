@@ -33,6 +33,7 @@ from farmared.salida import imprimir
 OBRAS_SOCIALES = {"OSDE", "Swiss Medical", "PAMI", "IOMA", "Galeno", "Sin cobertura"}
 SIN_COBERTURA = "Sin cobertura"
 CAMPOS_MODIFICABLES = ("email", "telefono", "ciudad", "provincia", "obra_social", "nro_afiliado")
+INTENTOS = 5
 
 _EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 _ID = re.compile(r"C(\d+)")
@@ -137,18 +138,22 @@ def modificar(id_cliente: str, **cambios: str | None) -> dict:
     if not cambios:
         raise ErrorDeValidacion("no se indicó ningún cambio")
     cambios = {campo: _normalizar(campo, valor) for campo, valor in cambios.items()}
-    actual = _cliente_activo(id_cliente)
-    resultado = {**actual, **cambios}
-    _validar_cobertura(resultado["obra_social"], resultado["nro_afiliado"])
-
-    documento = get_mongo().clientes.find_one_and_update(
-        {"_id": id_cliente, "activo": True},
-        {"$set": cambios},
-        return_document=ReturnDocument.AFTER,
-    )
-    if documento is None:
-        raise ErrorDeValidacion(f"el cliente {id_cliente} se dio de baja durante la modificación")
-    return documento
+    for _ in range(INTENTOS):
+        actual = _cliente_activo(id_cliente)
+        resultado = {**actual, **cambios}
+        _validar_cobertura(resultado["obra_social"], resultado["nro_afiliado"])
+        # La cobertura se validó combinando los cambios con lo leído. El filtro
+        # exige que siga igual: si otra modificación la cambió en el medio, no se
+        # escribe y se vuelve a validar con el valor nuevo.
+        documento = get_mongo().clientes.find_one_and_update(
+            {"_id": id_cliente, "activo": True,
+             "obra_social": actual["obra_social"], "nro_afiliado": actual["nro_afiliado"]},
+            {"$set": cambios},
+            return_document=ReturnDocument.AFTER,
+        )
+        if documento is not None:
+            return documento
+    raise ErrorDeValidacion(f"la cobertura del cliente {id_cliente} cambió {INTENTOS} veces durante la modificación")
 
 
 def baja(id_cliente: str) -> dict:
