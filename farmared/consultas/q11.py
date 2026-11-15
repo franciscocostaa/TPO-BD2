@@ -11,14 +11,13 @@ guardado sobre `ventas`: no almacena datos y se recalcula en cada lectura
 cambia solo.
 
 El mes se calcula dentro de la vista con `$$NOW`, la fecha del servidor al
-momento de la consulta, truncada al mes con `$dateTrunc`. Una vista no puede
-recibir parámetros, así que no hay otra forma de que "mes actual" siga siendo
-el mes actual mañana.
+momento de la consulta. Una vista no puede recibir parámetros, así que no hay
+otra forma de que "mes actual" siga siendo el mes actual mañana.
 
-`$$NOW` viene en UTC y la carga guarda cada fecha a las 00:00 UTC del día
-(sección 2.1 del informe), así que los dos lados de la comparación están en la
-misma referencia. El borde se corre tres horas: entre las 21:00 y las 00:00 del
-último día del mes en hora argentina, el servidor ya considera el mes siguiente.
+`$$NOW` es un instante en UTC, pero el mes actual es el de la hora argentina:
+la vista toma el año y el mes de `$$NOW` en `fechas.ZONA_HORARIA` y arma el
+día 1 a las 00:00 UTC, que es como la carga guarda cada fecha. Así el mes
+cambia a la medianoche argentina y no a las 21:00 del día anterior.
 
 Para las pruebas, `ejecutar(hoy=...)` no usa la vista: corre el mismo pipeline
 con el mes fijo, de modo que el resultado sea reproducible. Las dos variantes
@@ -72,8 +71,14 @@ def _agregacion() -> list[dict]:
 
 
 def pipeline_vista() -> list[dict]:
-    """Definición de la vista: el mes sale de `$$NOW` en cada lectura."""
-    inicio = {"$dateTrunc": {"date": "$$NOW", "unit": "month"}}
+    """Definición de la vista: el mes sale de `$$NOW` en cada lectura.
+
+    El año y el mes de `$$NOW` se toman en la hora de la red, y el día 1 se arma
+    a las 00:00 UTC, que es como la carga guarda las fechas. Truncar `$$NOW` en
+    UTC adelantaría el cambio de mes tres horas (desde las 21:00 del último día).
+    """
+    ahora = {"date": "$$NOW", "timezone": fechas.ZONA_HORARIA}
+    inicio = {"$dateFromParts": {"year": {"$year": ahora}, "month": {"$month": ahora}, "day": 1}}
     siguiente = {"$dateAdd": {"startDate": inicio, "unit": "month", "amount": 1}}
     return [
         {"$match": {"estado": "Completada", "$expr": {"$and": [
