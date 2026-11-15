@@ -68,6 +68,7 @@ Una reunión. Lo que salga queda escrito en `docs/` y nadie lo cambia sin avisar
 | 2 — Lecturas | Román | Hecho: q01, q02, q03, q06, q08, q09 |
 | 3 — Agregaciones y fechas | Franco | Hecho: q04, q05, q07, q10, q11, q12 |
 | 4 — Escritura y consistencia | Fran | Hecho: q14, q15 |
+| Fase 2 — Cierre | Eugenio | Hecho: prueba desde cero, revisión contra la consigna con correcciones (q03, q07, q11, q13, q14, carga y Redis), pruebas de consistencia (`farmared/pruebas.py`), informe nuevo y PDF |
 
 Con tres personas el rol 4 iba a repartirse entre todos, pero lo tomó Fran junto con el rol 1. Queda pendiente decidir si eso se compensa en el cierre de la fase 2.
 

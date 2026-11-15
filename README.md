@@ -4,19 +4,29 @@ Sistema de gestión para una red de farmacias con persistencia políglota: **Mon
 
 ## Integrantes
 
-| Nombre | Usuario de GitHub |
-|---|---|
-| | [@franciscocostaa](https://github.com/franciscocostaa) |
-| | |
-| | |
-| | |
+Grupo 9.
+
+| Integrante | Legajo | Usuario de GitHub |
+|---|---|---|
+| Branda, Franco | 65404 | [@FrancoBrandaa](https://github.com/FrancoBrandaa) |
+| Salerno, Román | 65145 | [@romansalerno](https://github.com/romansalerno) |
+| Migliaro, Eugenio | 65508 | [@eugemigliaro](https://github.com/eugemigliaro) |
+| Costa, Francisco | 65202 | [@franciscocostaa](https://github.com/franciscocostaa) |
+
+## Informe
+
+[`docs/informe.pdf`](docs/informe.pdf), generado a partir de [`docs/informe.md`](docs/informe.md). Para regenerarlo, desde la máquina local (no desde el contenedor), con Docker, pandoc y Google Chrome o Chromium:
+
+```bash
+./docs/generar_pdf.sh
+```
 
 ## Levantar el entorno
 
 ### GitHub Codespaces
 
 1. En GitHub: **Code → Codespaces → Create codespace on main**.
-2. Esperar a que termine de construir. Levanta tres contenedores: `app` (Python 3.12, donde se trabaja), `mongo` (MongoDB 8.0 como replica set `rs0`) y `redis` (Redis 7.4 con AOF), e instala las dependencias.
+2. Esperar a que termine de construir. Levanta tres contenedores: `app` (Python 3.12, donde se trabaja), `mongo` (MongoDB 8.0 como replica set `rs0`) y `redis` (Redis 7.4 con AOF y fsync en cada escritura), e instala las dependencias.
 3. En la terminal del Codespace:
 
 ```bash
@@ -44,7 +54,7 @@ redis-cli -h redis        # Redis
 python -m farmared.carga
 ```
 
-Carga los CSV de `datos/provistos/` y `datos/adicionales/` en MongoDB y en Redis. Se puede correr cuantas veces se quiera: cada vez deja exactamente el estado de los CSV y descarta lo que hayan cambiado los servicios de escritura. Si los datos tienen un error, por ejemplo una referencia a un id inexistente, lo informa y no modifica ninguna base. Detalle en la sección 4 de [`docs/informe.md`](docs/informe.md).
+Carga los CSV de `datos/provistos/` y `datos/adicionales/` en MongoDB y en Redis. Se puede correr cuantas veces se quiera: cada vez deja exactamente el estado de los CSV y descarta lo que hayan cambiado los servicios de escritura. Si los datos tienen un error, por ejemplo una referencia a un id inexistente o una receta con más dispensas de las que permite su tipo, lo informa y no modifica ninguna base. También crea la vista de la consulta 11. Detalle en la sección 4 de [`docs/informe.md`](docs/informe.md).
 
 Los datos persisten en volúmenes de Docker entre reinicios. Para vaciar las bases por completo:
 
@@ -69,19 +79,28 @@ python -m farmared.consultas.qNN [argumentos]
 | 2 | Ventas pendientes con su farmacéutico | `python -m farmared.consultas.q02` |
 | 3 | Historial de un cliente: ventas y recetas por fecha | `python -m farmared.consultas.q03 C001` |
 | 4 | Clientes con más de una receta, con la cantidad | `python -m farmared.consultas.q04` (opcional: `--minimo 3`) |
-| 5 | Farmacéuticos activos y sus ventas de los últimos 60 días, con los ceros | `python -m farmared.consultas.q05` (opcional: `--hoy 2026-11-14 --dias 30`) |
+| 5 | Farmacéuticos activos y sus ventas de los últimos 60 días, con los ceros | `python -m farmared.consultas.q05` (opcional: `--hoy 2026-11-15 --dias 30`) |
 | 6 | Recetas prolongadas vigentes con la próxima dispensa vencida | `python -m farmared.consultas.q06` (opcional: `--hoy 2026-10-13`) |
-| 7 | Top 5 de productos más vendidos en unidades | `python -m farmared.consultas.q07` (opcional: `--limite 10`) |
+| 7 | Top 5 de productos más vendidos en unidades; un empate en el quinto puesto entra completo | `python -m farmared.consultas.q07` (opcional: `--limite 10`) |
 | 8 | Lotes con menos de 50 unidades, con producto, sucursal y proveedor | `python -m farmared.consultas.q08` (opcional: `--umbral 20 --hoy 2026-10-13`) |
 | 9 | Ventas libres de menos de $5.000, sin anuladas | `python -m farmared.consultas.q09` |
 | 10 | Clientes atendidos en una sucursal, vía el farmacéutico | `python -m farmared.consultas.q10 S001` |
-| 11 | Vista de ingresos por farmacéutico en el mes actual | `python -m farmared.consultas.q11` (opcional: `--hoy 2026-11-14`, `--recrear`) |
-| 12 | Clientes sin ventas registradas en el último año | `python -m farmared.consultas.q12` (opcional: `--hoy 2026-11-14 --dias 365`) |
+| 11 | Vista de ingresos por farmacéutico en el mes actual | `python -m farmared.consultas.q11` (opcional: `--hoy 2026-11-15`, `--recrear`) |
+| 12 | Clientes sin ventas registradas en el último año | `python -m farmared.consultas.q12` (opcional: `--hoy 2026-11-15 --dias 365`) |
 | 13 | ABM de clientes | `python -m farmared.consultas.q13 alta --nombre Ana --apellido Paz --dni 40111222 --email ana.paz@example.com --telefono 1140001111 --ciudad "Buenos Aires" --provincia "Buenos Aires" --obra-social OSDE --nro-afiliado OS-500100` |
 | | | `python -m farmared.consultas.q13 modificar C021 --telefono 1140002222 --obra-social "Sin cobertura" --nro-afiliado ""` |
 | | | `python -m farmared.consultas.q13 baja C021` |
+| | | Un alta con el DNI de un cliente dado de baja y el mismo nombre lo reactiva: repetir el alta de arriba |
 | 14 | Registro de una venta "Completada" (descuenta stock con q15) | `python -m farmared.consultas.q14 --cliente C011 --farmaceutico F001 --item PRD003:20 --item PRD001:35 --medio-pago "Obra social" --receta RC012` |
-| 15 | Descuento de stock FEFO de una venta registrada | `python -m farmared.consultas.q15 V030` (opcional: `--hoy 2026-11-14`) |
+| 15 | Descuento de stock FEFO de una venta registrada | `python -m farmared.consultas.q15 V030` (opcional: `--hoy 2026-11-15`) |
+
+## Pruebas de consistencia
+
+```bash
+python -m farmared.pruebas
+```
+
+Verifica ocho escenarios de las consultas 13, 14 y 15 comparando el estado completo de MongoDB y Redis antes y después: rechazo por stock, fallas simuladas al confirmar la venta, ventas y altas simultáneas, y q15 sobre una venta ya descontada. Recarga los datos antes de cada escenario y al terminar. Detalle en la sección 6.6 del informe.
 
 ## Estado
 
@@ -89,13 +108,13 @@ python -m farmared.consultas.qNN [argumentos]
 |---|---|
 | Datasets provistos | En [`datos/provistos/`](datos/provistos/) |
 | Elección de motores y justificación | Sección 1 de [`docs/informe.md`](docs/informe.md) |
-| División del trabajo | Propuesta en [`docs/division.md`](docs/division.md) |
+| División del trabajo | [`docs/division.md`](docs/division.md) |
 | Modelo de datos | Sección 2 de [`docs/informe.md`](docs/informe.md), con diagramas |
 | Entorno en Codespaces | Listo |
 | Script de carga | Listo |
 | Registros adicionales (≥ 10 por colección/tabla) | Listos: clientes, sucursales, farmacéuticos, proveedores, productos, lotes, recetas, ventas y detalle |
-| Consultas | Las 15 listas |
-| Informe | [`docs/informe.md`](docs/informe.md): faltan la carátula y las conclusiones |
+| Consultas | Las 15 listas, con pruebas de consistencia de 13, 14 y 15 |
+| Informe | Listo: [`docs/informe.pdf`](docs/informe.pdf) |
 
 ## Estructura
 
@@ -112,11 +131,16 @@ farmared/
   salida.py         impresión de resultados como JSON
   fechas.py         "hoy" y conversión a fecha de MongoDB
   consultas/        q01–q15, un módulo por consulta
+  pruebas.py        pruebas de consistencia de q13, q14 y q15
 datos/
   provistos/        CSV entregados por la cátedra, sin modificar
   adicionales/      registros propios del equipo, mismo formato
 docs/
   informe.md        informe del TPO (arquitectura, modelo, carga, consultas, consistencia)
+  informe.pdf       el mismo informe en PDF, para la entrega
+  generar_pdf.sh    genera informe.pdf (mermaid-cli, pandoc y Chrome)
+  pdf/              hoja de estilo y configuración de diagramas del PDF
+  img/              logo de la carátula
   division.md       división del trabajo y dudas para la cátedra
 ```
 
