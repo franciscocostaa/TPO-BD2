@@ -8,7 +8,7 @@ Grupo 9.
 
 | Integrante | Legajo | Usuario de GitHub |
 |---|---|---|
-| Branda, Franco | 65404 | [@FrancoBrandaa](https://github.com/FrancoBrandaa) |
+| Branda, Franco | 65506 | [@FrancoBrandaa](https://github.com/FrancoBrandaa) |
 | Salerno, Román | 65145 | [@romansalerno](https://github.com/romansalerno) |
 | Migliaro, Eugenio | 65508 | [@eugemigliaro](https://github.com/eugemigliaro) |
 | Costa, Francisco | 65202 | [@franciscocostaa](https://github.com/franciscocostaa) |
@@ -92,7 +92,17 @@ python -m farmared.consultas.qNN [argumentos]
 | | | `python -m farmared.consultas.q13 baja C021` |
 | | | Un alta con el DNI de un cliente dado de baja y el mismo nombre lo reactiva: repetir el alta de arriba |
 | 14 | Registro de una venta "Completada" (descuenta stock con q15) | `python -m farmared.consultas.q14 --cliente C011 --farmaceutico F001 --item PRD003:20 --item PRD001:35 --medio-pago "Obra social" --receta RC012` |
-| 15 | Descuento de stock FEFO de una venta registrada | `python -m farmared.consultas.q15 V030` (opcional: `--hoy 2026-11-15`) |
+| 15 | Descuento de stock FEFO de una venta registrada. La ejecuta la consulta 14 al registrarla; invocarla sola siempre se rechaza (ver abajo) | `python -m farmared.consultas.q15 V017` (opcional: `--hoy 2026-11-15`) |
+
+**Sobre la consulta 15.** Descuenta el stock de una venta ya registrada, y la consulta 14 la ejecuta como parte del registro. Por eso, sobre los datos cargados, invocarla sola siempre termina en rechazo, y eso es justamente lo que demuestra: toda venta "Completada" ya tiene su stock descontado, sea por la carga o por la consulta 14.
+
+```bash
+python -m farmared.consultas.q15 V017   # el stock de la venta V017 ya se descontó
+python -m farmared.consultas.q15 V011   # la venta V011 está Pendiente
+python -m farmared.consultas.q15 V099   # no existe la venta V099
+```
+
+El descuento exitoso se ve en la fila 14, que es como la consigna pide que las consultas 14 y 15 funcionen juntas. La sección 6 del informe muestra el estado de los lotes antes y después.
 
 ## Pruebas de consistencia
 

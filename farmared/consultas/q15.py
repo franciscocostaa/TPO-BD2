@@ -27,10 +27,13 @@ Retorna `id_venta`, `id_sucursal` y `lotes`: cada lote tocado con `_id`,
 en que se consumieron. Lanza `ErrorDeValidacion` sin modificar nada si la venta
 no existe, no está "Completada", ya se descontó o el stock no alcanza.
 
-Uso desde la terminal:
+Uso desde la terminal. La consulta 14 la ejecuta al registrar la venta, así que
+sobre los datos cargados invocarla sola siempre se rechaza: toda venta
+"Completada" ya tiene su stock descontado.
 
-    python -m farmared.consultas.q15 V017
-    python -m farmared.consultas.q15 V017 --hoy 2026-11-14
+    python -m farmared.consultas.q15 V017                    # ya se descontó
+    python -m farmared.consultas.q15 V011                    # no está "Completada"
+    python -m farmared.consultas.q15 V017 --hoy 2026-11-15   # con la fecha fija
 """
 
 import argparse
