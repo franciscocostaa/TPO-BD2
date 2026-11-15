@@ -5,7 +5,8 @@ contacto y cobertura, y baja lógica (`activo: false`; nunca se borra).
 
 Motor: MongoDB, colección `clientes`. La unicidad del DNI la garantiza el
 índice único sobre `dni` (lo crea la carga), así que dos altas simultáneas con
-el mismo DNI no pueden quedar ambas registradas.
+el mismo DNI no pueden quedar ambas registradas. Un alta con el DNI de un
+cliente dado de baja lo reactiva (ver `alta`).
 
 Cada operación devuelve el documento del cliente tal como quedó, y lanza
 `ErrorDeValidacion` sin modificar nada si el pedido viola una regla.
@@ -89,7 +90,12 @@ def alta(nombre: str, apellido: str, dni: str, email: str, telefono: str,
     `nro_afiliado` es obligatorio salvo con `obra_social="Sin cobertura"`, donde debe omitirse.
 
     Retorna el documento insertado. Rechaza un DNI que no sea de 7 u 8 dígitos o
-    que ya esté registrado, aunque sea de un cliente dado de baja.
+    que ya sea de un cliente activo.
+
+    Si el DNI es de un cliente dado de baja, es la misma persona que vuelve: se
+    lo **reactiva** con los datos de contacto y cobertura nuevos, conservando su
+    id y su historial (el DNI sigue siendo único). Para evitar reactivar a otra
+    persona por un DNI mal tipeado, el nombre y el apellido tienen que coincidir.
     """
     dni = _texto("dni", dni)
     if not (dni.isdigit() and 7 <= len(dni) <= 8):
@@ -116,10 +122,30 @@ def alta(nombre: str, apellido: str, dni: str, email: str, telefono: str,
             return documento
         except DuplicateKeyError as error:
             if "dni" in error.details.get("keyPattern", {}):
-                existente = clientes.find_one({"dni": dni})
-                estado = "activo" if existente["activo"] else "dado de baja"
-                raise ErrorDeValidacion(f"el DNI {dni} ya está registrado ({existente['_id']}, {estado})") from None
+                return _reactivar(cliente)
             # Otra alta tomó el mismo id al mismo tiempo: se calcula el siguiente y se reintenta.
+
+
+def _reactivar(cliente: dict) -> dict:
+    """Alta con el DNI de un cliente existente: lo reactiva si está dado de baja y es la misma persona."""
+    clientes = get_mongo().clientes
+    existente = clientes.find_one({"dni": cliente["dni"]})
+    if existente["activo"]:
+        raise ErrorDeValidacion(f"el DNI {cliente['dni']} ya está registrado ({existente['_id']}, activo)")
+    mismo_nombre = all(existente[c].casefold() == cliente[c].casefold() for c in ("nombre", "apellido"))
+    if not mismo_nombre:
+        raise ErrorDeValidacion(
+            f"el DNI {cliente['dni']} es de {existente['_id']} ({existente['nombre']} {existente['apellido']}, "
+            f"dado de baja) y el nombre no coincide")
+    documento = clientes.find_one_and_update(
+        {"_id": existente["_id"], "activo": False},
+        {"$set": {**{c: cliente[c] for c in CAMPOS_MODIFICABLES}, "activo": True}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if documento is None:
+        # Otra alta con el mismo DNI lo reactivó al mismo tiempo.
+        raise ErrorDeValidacion(f"el DNI {cliente['dni']} ya está registrado ({existente['_id']}, activo)")
+    return documento
 
 
 def modificar(id_cliente: str, **cambios: str | None) -> dict:
