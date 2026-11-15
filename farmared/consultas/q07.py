@@ -8,18 +8,20 @@ Motor: MongoDB, colecciones `ventas` y `productos`. Los ítems están embebidos
 en la venta (`items`), así que las unidades vendidas salen de la misma
 colección: `$unwind` abre un documento por ítem y `$group` suma las cantidades
 por producto (Clase 13). El `$lookup` con `productos` va **después** del
-`$limit`, para unir cinco documentos y no todo el catálogo.
+corte, para unir solo los productos del ranking y no todo el catálogo.
 
-El ranking ordena por unidades y desempata por id de producto. El desempate es
-arbitrario, pero hace que el resultado sea siempre el mismo: sin él, dos
-productos con las mismas unidades podrían entrar y salir del top 5 entre dos
-ejecuciones iguales.
+El puesto se calcula con `$rank` sobre las unidades, como `RANK()` en SQL:
+productos con las mismas unidades comparten el puesto. Se devuelven los de
+puesto `<= limite`, así que **un empate en el corte entra completo** y el top 5
+puede traer más de cinco productos. Cortar en cinco exactos obligaría a dejar
+afuera a uno de los empatados con un criterio arbitrario, como el id. Dentro
+del mismo puesto se ordena por id, para que la salida sea siempre la misma.
 
-Parámetros: `limite` (opcional, por defecto 5): cuántos productos devolver.
+Parámetros: `limite` (opcional, por defecto 5): último puesto incluido.
 
 Retorna la lista ordenada de mayor a menor. Cada elemento tiene `_id` (el id
-del producto), `unidades` (total vendido), `ventas` (en cuántas ventas
-distintas apareció) y `producto` con el documento completo.
+del producto), `puesto`, `unidades` (total vendido), `ventas` (en cuántas
+ventas distintas apareció) y `producto` con el documento completo.
 
 Uso desde la terminal:
 
@@ -48,8 +50,10 @@ def pipeline(limite: int = LIMITE) -> list[dict]:
             "ventas": {"$addToSet": "$_id"},
         }},
         {"$set": {"ventas": {"$size": "$ventas"}}},
-        {"$sort": {"unidades": -1, "_id": 1}},
-        {"$limit": limite},
+        # Puesto con empates: 10, 10, 8 → 1, 1, 3.
+        {"$setWindowFields": {"sortBy": {"unidades": -1}, "output": {"puesto": {"$rank": {}}}}},
+        {"$match": {"puesto": {"$lte": limite}}},
+        {"$sort": {"puesto": 1, "_id": 1}},
         {"$lookup": {
             "from": "productos",
             "localField": "_id",
@@ -61,7 +65,7 @@ def pipeline(limite: int = LIMITE) -> list[dict]:
 
 
 def ejecutar(limite: int = LIMITE) -> list[dict]:
-    """Los `limite` productos con más unidades vendidas en ventas "Completada"."""
+    """Productos hasta el puesto `limite` en unidades vendidas en ventas "Completada", con empates."""
     return list(get_mongo().ventas.aggregate(pipeline(limite)))
 
 
@@ -69,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m farmared.consultas.q07",
                                      description="Top 5 de productos más vendidos en unidades")
     parser.add_argument("--limite", type=int, default=LIMITE,
-                        help=f"cuántos productos devolver (por defecto {LIMITE})")
+                        help=f"último puesto incluido; los empatados entran todos (por defecto {LIMITE})")
     args = parser.parse_args(argv)
     imprimir(ejecutar(args.limite))
     return 0
