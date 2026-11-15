@@ -100,7 +100,7 @@ python -m farmared.consultas.qNN [argumentos]
 python -m farmared.pruebas
 ```
 
-Verifica ocho escenarios de las consultas 13, 14 y 15 comparando el estado completo de MongoDB y Redis antes y después: rechazo por stock, fallas simuladas al confirmar la venta, ventas y altas simultáneas, y q15 sobre una venta ya descontada. Recarga los datos antes de cada escenario y al terminar. Detalle en la sección 6.6 del informe.
+Verifica ocho escenarios de las consultas 13, 14 y 15 comparando el estado completo de MongoDB y Redis antes y después: rechazo por stock, fallas simuladas al confirmar la venta, ventas y altas simultáneas, y q15 sobre una venta ya descontada. Recarga los datos antes de cada escenario y al terminar. Detalle en la sección 6.4 del informe.
 
 ## Estado
 
