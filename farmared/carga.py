@@ -26,6 +26,8 @@ from pymongo import ASCENDING
 from farmared import stock
 from farmared.conexiones import get_mongo, get_mongo_client, get_redis
 from farmared.consultas import q11
+from farmared.consultas.q13 import OBRAS_SOCIALES
+from farmared.consultas.q14 import MEDIOS_DE_PAGO
 
 DATOS = Path(__file__).resolve().parent.parent / "datos"
 PROVISTOS = DATOS / "provistos"
@@ -66,6 +68,20 @@ REFERENCIAS = [
 ]
 
 UNICOS = [("clientes", "dni"), ("farmaceuticos", "matricula")]
+
+# Valores posibles de los campos categóricos (consigna, §2).
+VALORES = {
+    ("clientes", "obra_social"): OBRAS_SOCIALES,
+    ("sucursales", "tipo"): {"Farmacia", "Droguería"},
+    ("farmaceuticos", "cargo"): {"Director Técnico", "Farmacéutico"},
+    ("proveedores", "tipo"): {"Laboratorio", "Droguería"},
+    ("productos", "condicion_venta"): {"Venta libre", "Bajo receta", "Bajo receta archivada"},
+    ("recetas", "tipo"): {"Simple", "Archivada", "Tratamiento prolongado"},
+    ("recetas", "estado"): {"Vigente", "Completada", "Vencida"},
+    ("ventas", "tipo"): {"Venta libre", "Con receta"},
+    ("ventas", "medio_pago"): MEDIOS_DE_PAGO,
+    ("ventas", "estado"): {"Completada", "Pendiente", "Anulada"},
+}
 
 INDICES = {
     "clientes": [([("dni", ASCENDING)], {"unique": True})],
@@ -138,6 +154,8 @@ def validar(tablas: dict[str, list[dict]]) -> list[str]:
             for campo, valor in fila.items():
                 if valor is None and (archivo, campo) not in NULABLES:
                     errores.append(f"{archivo} {fila[campo_id]}: {campo} vacío")
+                elif valor is not None and (archivo, campo) in VALORES and valor not in VALORES[archivo, campo]:
+                    errores.append(f"{archivo} {fila[campo_id]}: {campo} inválido {valor!r}")
         repetidos = Counter(fila[campo_id] for fila in tablas[archivo])
         errores += [f"{archivo}: {campo_id} {valor} repetido" for valor, n in repetidos.items() if n > 1]
         ids[archivo] = set(repetidos)
@@ -171,6 +189,40 @@ def validar(tablas: dict[str, list[dict]]) -> list[str]:
     for lote in tablas["stock_lotes"]:
         if lote["unidades"] < 0:
             errores.append(f"stock_lotes {lote['id_lote']}: unidades negativas")
+    return errores + reglas_de_negocio(tablas)
+
+
+def reglas_de_negocio(tablas: dict[str, list[dict]]) -> list[str]:
+    """Coherencia de clientes, recetas y ventas con las reglas de la consigna (§2.1, §2.7, §2.8, §2.11)."""
+    errores = []
+    for cliente in tablas["clientes"]:
+        if (cliente["obra_social"] == "Sin cobertura") != (cliente["nro_afiliado"] is None):
+            errores.append(f"clientes {cliente['id_cliente']}: obra_social {cliente['obra_social']} "
+                           f"con nro_afiliado {cliente['nro_afiliado']}")
+    for venta in tablas["ventas"]:
+        if (venta["tipo"] == "Con receta") != (venta["id_receta"] is not None):
+            receta = venta["id_receta"] or "vacío"
+            errores.append(f"ventas {venta['id_venta']}: tipo {venta['tipo']} con id_receta {receta}")
+
+    # Una venta "Completada" con receta es una dispensa.
+    dispensas = Counter(v["id_receta"] for v in tablas["ventas"] if v["estado"] == "Completada" and v["id_receta"])
+    for receta in tablas["recetas"]:
+        id_receta, tipo = receta["id_receta"], receta["tipo"]
+        autorizadas, realizadas = receta["dispensas_autorizadas"], receta["dispensas_realizadas"]
+        if tipo == "Tratamiento prolongado" and not 1 <= autorizadas <= 3:
+            errores.append(f"recetas {id_receta}: un tratamiento prolongado permite hasta 3 dispensas, no {autorizadas}")
+        elif tipo != "Tratamiento prolongado" and autorizadas != 1:
+            errores.append(f"recetas {id_receta}: una receta {tipo} tiene una única dispensa, no {autorizadas}")
+        if not 0 <= realizadas <= autorizadas:
+            errores.append(f"recetas {id_receta}: {realizadas} dispensas realizadas de {autorizadas} autorizadas")
+        if (receta["estado"] == "Completada") != (realizadas == autorizadas):
+            errores.append(f"recetas {id_receta}: estado {receta['estado']} con {realizadas} de {autorizadas} dispensas")
+        espera = receta["estado"] == "Vigente" and tipo == "Tratamiento prolongado" and realizadas > 0
+        if espera != (receta["proxima_dispensa"] is not None):
+            errores.append(f"recetas {id_receta}: proxima_dispensa {'vacía' if espera else 'no corresponde'}")
+        if dispensas[id_receta] != realizadas:
+            errores.append(f"recetas {id_receta}: {realizadas} dispensas realizadas, pero la usan "
+                           f"{dispensas[id_receta]} ventas Completada")
     return errores
 
 
