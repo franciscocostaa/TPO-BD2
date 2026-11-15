@@ -13,8 +13,12 @@ así cada uno aparece una sola vez aunque lo hayan atendido varios
 farmacéuticos.
 
 El recorrido no usa `ventas.id_sucursal`, que la venta guarda copiada del
-farmacéutico: la consulta pide explícitamente pasar por el farmacéutico, y así
-el resultado es el mismo incluso si un farmacéutico cambió de sucursal.
+farmacéutico al registrarse, porque la consulta pide explícitamente pasar por
+el farmacéutico. Las dos vías coinciden mientras ningún farmacéutico cambie de
+sucursal. Si uno cambiara, este recorrido le atribuiría sus ventas anteriores a
+la sucursal nueva, porque el modelo de la consigna guarda una sola sucursal por
+farmacéutico, sin historial. `ventas.id_sucursal` conservaría dónde ocurrió
+cada venta.
 
 Parámetros: `id_sucursal` (por ejemplo, "S001").
 
